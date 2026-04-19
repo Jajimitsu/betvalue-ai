@@ -164,7 +164,7 @@ ${recomendacion}
      src="/logo.png"
      alt="BetValue AI"
      className="w-72 mb-6"
-/>
+      />
 
       <p className="mb-6 text-gray-400">
         Detecta cuotas con valor automáticamente
