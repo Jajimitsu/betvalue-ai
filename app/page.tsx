@@ -5,6 +5,7 @@ import { useState } from "react";
 export default function Home() {
   const [match, setMatch] = useState("");
   const [result, setResult] = useState("");
+  const [loading, setLoading] = useState(false);
 
   function limpiar(texto: string) {
     return texto
@@ -12,6 +13,8 @@ export default function Home() {
       .replace("fc", "")
       .replace("cf", "")
       .replace("real ", "")
+      .replace("club de fútbol", "")
+      .replace("club de futbol", "")
       .trim();
   }
 
@@ -43,27 +46,36 @@ export default function Home() {
   }
 
   async function obtenerForma(teamId: number) {
-    const res = await fetch(`/api/form?team=${teamId}`);
-    const data = await res.json();
+    try {
+      const res = await fetch(`/api/form?team=${teamId}`);
+      const data = await res.json();
 
-    if (!data.matches) return "Sin datos";
+      if (!data.matches) return "Sin datos";
 
-    return data.matches
-      .map((m: any) => {
-        const esLocal = m.homeTeam.id === teamId;
-        const gf = esLocal
-          ? m.score.fullTime.home
-          : m.score.fullTime.away;
+      return data.matches
+        .map((m: any) => {
+          const esLocal = m.homeTeam.id === teamId;
 
-        const gc = esLocal
-          ? m.score.fullTime.away
-          : m.score.fullTime.home;
+          const gf = esLocal
+            ? m.score.fullTime.home
+            : m.score.fullTime.away;
 
-        if (gf > gc) return "V";
-        if (gf < gc) return "D";
-        return "E";
-      })
-      .join(" ");
+          const gc = esLocal
+            ? m.score.fullTime.away
+            : m.score.fullTime.home;
+
+          if (gf > gc) return "V";
+          if (gf < gc) return "D";
+          return "E";
+        })
+        .join(" ");
+    } catch {
+      return "Sin datos";
+    }
+  }
+
+  function contar(forma: string, letra: string) {
+    return (forma.match(new RegExp(letra, "g")) || []).length;
   }
 
   async function analizarPartido() {
@@ -72,7 +84,8 @@ export default function Home() {
       return;
     }
 
-    setResult("Analizando forma real...");
+    setLoading(true);
+    setResult("Analizando partido...");
 
     const partes = match.split("vs");
     const local = partes[0].trim();
@@ -81,6 +94,7 @@ export default function Home() {
     const datos = await buscarLiga(local, visitante);
 
     if (!datos) {
+      setLoading(false);
       setResult("No encontré ambos equipos.");
       return;
     }
@@ -99,48 +113,89 @@ export default function Home() {
     let probEmpate = 27;
     let probVisitante = 35;
 
+    // Clasificación
     if (equipoLocal.position < equipoVisitante.position) {
-      probLocal += 10;
-      probVisitante -= 10;
+      probLocal += 8;
+      probVisitante -= 8;
     } else {
-      probVisitante += 10;
-      probLocal -= 10;
+      probVisitante += 8;
+      probLocal -= 8;
     }
 
-    const victoriasLocal =
-      (formaLocal.match(/V/g) || []).length;
+    // Ventaja local
+    probLocal += 7;
+    probVisitante -= 4;
 
-    const victoriasVisitante =
-      (formaVisitante.match(/V/g) || []).length;
+    // Forma últimos 5
+    const vLocal = contar(formaLocal, "V");
+    const vVisit = contar(formaVisitante, "V");
 
-    probLocal += victoriasLocal * 2;
-    probVisitante += victoriasVisitante * 2;
+    probLocal += vLocal * 2;
+    probVisitante += vVisit * 2;
+
+    // Goles temporada
+    if (
+      equipoLocal.goalsFor > equipoVisitante.goalsFor
+    ) {
+      probLocal += 3;
+    } else {
+      probVisitante += 3;
+    }
+
+    // Normalización
+    if (probLocal < 5) probLocal = 5;
+    if (probVisitante < 5) probVisitante = 5;
+
+    const total =
+      probLocal + probEmpate + probVisitante;
+
+    probLocal = Math.round((probLocal / total) * 100);
+    probEmpate = Math.round((probEmpate / total) * 100);
+    probVisitante =
+      100 - probLocal - probEmpate;
 
     let recomendacion = "Partido equilibrado";
 
-    if (probLocal >= 55)
+    if (probLocal >= 56)
       recomendacion = "Victoria local";
-    else if (probVisitante >= 55)
+    else if (probVisitante >= 56)
       recomendacion = "Victoria visitante";
-    else recomendacion = "Ambos marcan";
+    else if (
+      equipoLocal.goalsFor > 45 &&
+      equipoVisitante.goalsFor > 45
+    )
+      recomendacion = "Ambos marcan";
+    else if (
+      equipoLocal.goalsAgainst > 40 &&
+      equipoVisitante.goalsAgainst > 40
+    )
+      recomendacion = "Over 2.5 goles";
+    else
+      recomendacion = "Doble oportunidad local";
 
     setResult(`
 ⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
 
 🏆 Competición: ${liga}
 
-📈 Últimos 5 reales:
-🏠 ${equipoLocal.team.name}: ${formaLocal}
-✈️ ${equipoVisitante.team.name}: ${formaVisitante}
+📈 Forma últimos 5:
+${equipoLocal.team.name}: ${formaLocal}
+${equipoVisitante.team.name}: ${formaVisitante}
 
 📊 Probabilidades:
-Local ${probLocal}%
-Empate ${probEmpate}%
-Visitante ${probVisitante}%
+🏠 Local ${probLocal}%
+🤝 Empate ${probEmpate}%
+✈️ Visitante ${probVisitante}%
 
-🎯 Recomendación:
+⚽ Goles temporada:
+${equipoLocal.team.name}: ${equipoLocal.goalsFor}
+${equipoVisitante.team.name}: ${equipoVisitante.goalsFor}
+
+🎯 Recomendación PRO:
 ${recomendacion}
     `);
+
+    setLoading(false);
   }
 
   return (
@@ -148,12 +203,18 @@ ${recomendacion}
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
 
         <div className="flex flex-col items-center mb-8">
-          <img src="/logo.png" className="w-40 mb-4" />
+          <img
+            src="/logo.png"
+            alt="BetValue AI"
+            className="w-40 mb-4"
+          />
+
           <h1 className="text-4xl font-bold text-green-400">
             BetValue AI
           </h1>
+
           <p className="text-gray-300 mt-2 text-center">
-            Predicciones con forma REAL
+            Motor predictivo vNEXT Estable
           </p>
         </div>
 
@@ -167,9 +228,10 @@ ${recomendacion}
 
         <button
           onClick={analizarPartido}
+          disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
-          Analizar Partido
+          {loading ? "Analizando..." : "Analizar Partido"}
         </button>
 
         {result && (
@@ -177,6 +239,7 @@ ${recomendacion}
             {result}
           </div>
         )}
+
       </div>
     </main>
   );
