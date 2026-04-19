@@ -9,10 +9,8 @@ export default function Home() {
   function limpiar(texto: string) {
     return texto
       .toLowerCase()
-      .replace("cf", "")
       .replace("fc", "")
-      .replace("club de fútbol", "")
-      .replace("club de futbol", "")
+      .replace("cf", "")
       .replace("real ", "")
       .trim();
   }
@@ -44,13 +42,37 @@ export default function Home() {
     return null;
   }
 
+  async function obtenerForma(teamId: number) {
+    const res = await fetch(`/api/form?team=${teamId}`);
+    const data = await res.json();
+
+    if (!data.matches) return "Sin datos";
+
+    return data.matches
+      .map((m: any) => {
+        const esLocal = m.homeTeam.id === teamId;
+        const gf = esLocal
+          ? m.score.fullTime.home
+          : m.score.fullTime.away;
+
+        const gc = esLocal
+          ? m.score.fullTime.away
+          : m.score.fullTime.home;
+
+        if (gf > gc) return "V";
+        if (gf < gc) return "D";
+        return "E";
+      })
+      .join(" ");
+  }
+
   async function analizarPartido() {
     if (!match.includes("vs")) {
-      setResult("Escribe así: Real Madrid vs Barcelona");
+      setResult("Escribe así: Everton vs Liverpool");
       return;
     }
 
-    setResult("Analizando partido...");
+    setResult("Analizando forma real...");
 
     const partes = match.split("vs");
     const local = partes[0].trim();
@@ -65,46 +87,58 @@ export default function Home() {
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
-    const diferenciaPosicion =
-      equipoVisitante.position - equipoLocal.position;
+    const formaLocal = await obtenerForma(
+      equipoLocal.team.id
+    );
 
-    let probLocal = 40;
-    let probEmpate = 30;
-    let probVisitante = 30;
+    const formaVisitante = await obtenerForma(
+      equipoVisitante.team.id
+    );
 
-    if (diferenciaPosicion >= 5) {
-      probLocal = 58;
-      probEmpate = 24;
-      probVisitante = 18;
-    } else if (diferenciaPosicion <= -5) {
-      probLocal = 20;
-      probEmpate = 25;
-      probVisitante = 55;
+    let probLocal = 38;
+    let probEmpate = 27;
+    let probVisitante = 35;
+
+    if (equipoLocal.position < equipoVisitante.position) {
+      probLocal += 10;
+      probVisitante -= 10;
+    } else {
+      probVisitante += 10;
+      probLocal -= 10;
     }
 
-    let recomendacion = "Sin valor claro";
+    const victoriasLocal =
+      (formaLocal.match(/V/g) || []).length;
 
-    if (probLocal >= 55) recomendacion = "Victoria local";
+    const victoriasVisitante =
+      (formaVisitante.match(/V/g) || []).length;
+
+    probLocal += victoriasLocal * 2;
+    probVisitante += victoriasVisitante * 2;
+
+    let recomendacion = "Partido equilibrado";
+
+    if (probLocal >= 55)
+      recomendacion = "Victoria local";
     else if (probVisitante >= 55)
       recomendacion = "Victoria visitante";
-    else if (
-      equipoLocal.goalsFor > 50 &&
-      equipoVisitante.goalsFor > 50
-    )
-      recomendacion = "Ambos marcan";
-    else recomendacion = "Over 2.5 goles";
+    else recomendacion = "Ambos marcan";
 
     setResult(`
 ⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
 
 🏆 Competición: ${liga}
 
-📈 Probabilidades:
-🏠 Local: ${probLocal}%
-🤝 Empate: ${probEmpate}%
-✈️ Visitante: ${probVisitante}%
+📈 Últimos 5 reales:
+🏠 ${equipoLocal.team.name}: ${formaLocal}
+✈️ ${equipoVisitante.team.name}: ${formaVisitante}
 
-🎯 Recomendación PRO:
+📊 Probabilidades:
+Local ${probLocal}%
+Empate ${probEmpate}%
+Visitante ${probVisitante}%
+
+🎯 Recomendación:
 ${recomendacion}
     `);
   }
@@ -114,32 +148,26 @@ ${recomendacion}
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
 
         <div className="flex flex-col items-center mb-8">
-          <img
-            src="/logo.png"
-            alt="BetValue AI"
-            className="w-44 mb-4"
-          />
-
+          <img src="/logo.png" className="w-40 mb-4" />
           <h1 className="text-4xl font-bold text-green-400">
             BetValue AI
           </h1>
-
           <p className="text-gray-300 mt-2 text-center">
-            Predicciones deportivas con inteligencia de datos
+            Predicciones con forma REAL
           </p>
         </div>
 
         <input
           type="text"
-          placeholder="Ej: Real Madrid vs Manchester City"
+          placeholder="Ej: Everton vs Liverpool"
           value={match}
           onChange={(e) => setMatch(e.target.value)}
-          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4 outline-none"
+          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
         />
 
         <button
           onClick={analizarPartido}
-          className="w-full bg-green-500 hover:bg-green-600 transition-all py-4 rounded-2xl font-bold text-lg shadow-lg"
+          className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
           Analizar Partido
         </button>
@@ -149,10 +177,6 @@ ${recomendacion}
             {result}
           </div>
         )}
-
-        <p className="text-center text-sm text-gray-400 mt-6">
-          © BetValue AI PRO
-        </p>
       </div>
     </main>
   );
