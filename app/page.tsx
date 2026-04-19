@@ -50,7 +50,7 @@ export default function Home() {
       return;
     }
 
-    setResult("Buscando datos reales...");
+    setResult("Analizando partido...");
 
     const partes = match.split("vs");
     const local = partes[0].trim();
@@ -65,7 +65,6 @@ export default function Home() {
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
-    // MODELO PROBABILIDAD
     const diferenciaPosicion =
       equipoVisitante.position - equipoLocal.position;
 
@@ -83,113 +82,78 @@ export default function Home() {
       probVisitante = 55;
     }
 
-    // CUOTAS JUSTAS
-    const cuotaJustaLocal = (100 / probLocal).toFixed(2);
-    const cuotaJustaEmpate = (100 / probEmpate).toFixed(2);
-    const cuotaJustaVisitante = (100 / probVisitante).toFixed(2);
-
-    // CUOTAS REALES
-    let cuotaLocal = "-";
-    let cuotaEmpate = "-";
-    let cuotaVisitante = "-";
-
-    try {
-      const oddsRes = await fetch(
-        `/api/odds?home=${encodeURIComponent(
-          equipoLocal.team.name
-        )}&away=${encodeURIComponent(
-          equipoVisitante.team.name
-        )}`
-      );
-
-      const oddsData = await oddsRes.json();
-
-      if (
-        oddsData.bookmakers &&
-        oddsData.bookmakers[0] &&
-        oddsData.bookmakers[0].markets[0]
-      ) {
-        const outcomes =
-          oddsData.bookmakers[0].markets[0].outcomes;
-
-        cuotaLocal = outcomes[0]?.price ?? "-";
-        cuotaVisitante = outcomes[1]?.price ?? "-";
-        cuotaEmpate = outcomes[2]?.price ?? "-";
-      }
-    } catch (error) {}
-
     let recomendacion = "Sin valor claro";
 
-    if (
-      cuotaLocal !== "-" &&
-      Number(cuotaLocal) > Number(cuotaJustaLocal)
-    ) {
-      recomendacion = "VALUE BET: Victoria local";
-    } else if (
-      cuotaVisitante !== "-" &&
-      Number(cuotaVisitante) > Number(cuotaJustaVisitante)
-    ) {
-      recomendacion = "VALUE BET: Victoria visitante";
-    } else if (
-      cuotaEmpate !== "-" &&
-      Number(cuotaEmpate) > Number(cuotaJustaEmpate)
-    ) {
-      recomendacion = "VALUE BET: Empate";
-    }
+    if (probLocal >= 55) recomendacion = "Victoria local";
+    else if (probVisitante >= 55)
+      recomendacion = "Victoria visitante";
+    else if (
+      equipoLocal.goalsFor > 50 &&
+      equipoVisitante.goalsFor > 50
+    )
+      recomendacion = "Ambos marcan";
+    else recomendacion = "Over 2.5 goles";
 
     setResult(`
-📊 ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
+⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
 
-🏆 Competición:
-${liga}
+🏆 Competición: ${liga}
 
-📈 Probabilidades modelo:
-Local ${probLocal}%
-Empate ${probEmpate}%
-Visitante ${probVisitante}%
+📈 Probabilidades:
+🏠 Local: ${probLocal}%
+🤝 Empate: ${probEmpate}%
+✈️ Visitante: ${probVisitante}%
 
-💰 Cuotas reales:
-Local @${cuotaLocal}
-Empate @${cuotaEmpate}
-Visitante @${cuotaVisitante}
-
-🎯 Recomendación:
+🎯 Recomendación PRO:
 ${recomendacion}
     `);
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-black text-white px-4">
-      <img
-     src="/logo.png"
-     alt="BetValue AI"
-     className="w-72 mb-6"
-      />
+    <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
 
-      <p className="mb-6 text-gray-400">
-        Detecta cuotas con valor automáticamente
-      </p>
+        <div className="flex flex-col items-center mb-8">
+          <img
+            src="/logo.png"
+            alt="BetValue AI"
+            className="w-44 mb-4"
+          />
 
-      <input
-        type="text"
-        placeholder="Ej: Real Madrid vs Barcelona"
-        value={match}
-        onChange={(e) => setMatch(e.target.value)}
-        className="bg-white text-black px-4 py-3 rounded w-96 mb-4"
-      />
+          <h1 className="text-4xl font-bold text-green-400">
+            BetValue AI
+          </h1>
 
-      <button
-        onClick={analizarPartido}
-        className="bg-green-500 hover:bg-green-600 px-6 py-3 rounded font-bold"
-      >
-        Analizar
-      </button>
-
-      {result && (
-        <div className="mt-6 whitespace-pre-line bg-gray-900 p-6 rounded border border-green-500 max-w-xl">
-          {result}
+          <p className="text-gray-300 mt-2 text-center">
+            Predicciones deportivas con inteligencia de datos
+          </p>
         </div>
-      )}
+
+        <input
+          type="text"
+          placeholder="Ej: Real Madrid vs Manchester City"
+          value={match}
+          onChange={(e) => setMatch(e.target.value)}
+          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4 outline-none"
+        />
+
+        <button
+          onClick={analizarPartido}
+          className="w-full bg-green-500 hover:bg-green-600 transition-all py-4 rounded-2xl font-bold text-lg shadow-lg"
+        >
+          Analizar Partido
+        </button>
+
+        {result && (
+          <div className="mt-6 bg-black/40 border border-green-500/30 rounded-2xl p-6 whitespace-pre-line text-lg leading-8">
+            {result}
+          </div>
+        )}
+
+        <p className="text-center text-sm text-gray-400 mt-6">
+          © BetValue AI PRO
+        </p>
+      </div>
     </main>
   );
 }
