@@ -160,9 +160,11 @@ ${recomendacion}
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-black text-white px-4">
-      <h1 className="text-5xl font-bold text-green-400 mb-6">
-        BetValue AI PRO
-      </h1>
+      <img
+     src="/logo.png"
+     alt="BetValue AI"
+     className="w-72 mb-6"
+/>
 
       <p className="mb-6 text-gray-400">
         Detecta cuotas con valor automáticamente
