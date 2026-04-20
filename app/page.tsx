@@ -3,7 +3,8 @@
 import { useState } from "react";
 
 export default function Home() {
-  const [match, setMatch] = useState("");
+  const [local, setLocal] = useState("");
+  const [visitante, setVisitante] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -40,15 +41,18 @@ export default function Home() {
     return alias[key] || texto;
   }
 
-  async function buscarLiga(local: string, visitante: string) {
+  async function buscarLiga(
+    equipoLocalTexto: string,
+    equipoVisitTexto: string
+  ) {
     const ligas = ["CL", "PD", "PL", "SA", "BL1", "FL1"];
 
     const buscadoLocal = normalizar(
-      corregirAlias(local)
+      corregirAlias(equipoLocalTexto)
     );
 
     const buscadoVisit = normalizar(
-      corregirAlias(visitante)
+      corregirAlias(equipoVisitTexto)
     );
 
     for (const liga of ligas) {
@@ -117,55 +121,49 @@ export default function Home() {
   }
 
   async function analizarPartido() {
-    if (!match.toLowerCase().includes("vs")) {
-      setResult("Escribe así: PSG vs Lyon");
+    if (!local || !visitante) {
+      setResult("Escribe ambos equipos.");
       return;
     }
 
     setLoading(true);
     setResult("Buscando partido...");
 
-    const partes = match.split(/vs/i);
-    const local = partes[0].trim();
-    const visitante = partes[1].trim();
-
-    const datos = await buscarLiga(local, visitante);
+    let datos = await buscarLiga(local, visitante);
 
     if (!datos) {
-  try {
-    const resLocal = await fetch(
-      `/api/search-team?name=${local}`
-    );
+      try {
+        const resLocal = await fetch(
+          `/api/search-team?name=${local}`
+        );
 
-    const dataLocal = await resLocal.json();
+        const dataLocal = await resLocal.json();
 
-    const resVisit = await fetch(
-      `/api/search-team?name=${visitante}`
-    );
+        const resVisit = await fetch(
+          `/api/search-team?name=${visitante}`
+        );
 
-    const dataVisit = await resVisit.json();
+        const dataVisit = await resVisit.json();
 
-    if (
-      dataLocal.teams?.length > 0 &&
-      dataVisit.teams?.length > 0
-    ) {
-      setLoading(false);
-      setResult(`
+        if (
+          dataLocal.teams?.length > 0 &&
+          dataVisit.teams?.length > 0
+        ) {
+          setLoading(false);
+          setResult(`
 ⚽ ${dataLocal.teams[0].name} vs ${dataVisit.teams[0].name}
 
 🌍 Equipos encontrados por buscador global.
+📌 Próxima mejora: análisis global completo.
+          `);
+          return;
+        }
+      } catch {}
 
-📌 Próxima mejora:
-análisis completo global.
-      `);
+      setLoading(false);
+      setResult("No encontré esos equipos.");
       return;
     }
-  } catch {}
-
-  setLoading(false);
-  setResult("No encontré esos equipos.");
-  return;
-}
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
@@ -181,7 +179,6 @@ análisis completo global.
     let probEmpate = 27;
     let probVisit = 33;
 
-    // clasificación
     if (equipoLocal.position < equipoVisitante.position) {
       probLocal += 8;
       probVisit -= 8;
@@ -190,10 +187,8 @@ análisis completo global.
       probLocal -= 8;
     }
 
-    // localía
     probLocal += 7;
 
-    // forma
     probLocal += contar(formaLocal, "V") * 2;
     probVisit += contar(formaVisit, "V") * 2;
 
@@ -254,15 +249,25 @@ ${recomendacion}
           </h1>
 
           <p className="text-gray-300 mt-2 text-center">
-            Buscador Mixto Definitivo
+            Dos celdas PRO
           </p>
         </div>
 
         <input
           type="text"
-          placeholder="Ej: PSG vs Lyon"
-          value={match}
-          onChange={(e) => setMatch(e.target.value)}
+          placeholder="Equipo local"
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
+        />
+
+        <input
+          type="text"
+          placeholder="Equipo visitante"
+          value={visitante}
+          onChange={(e) =>
+            setVisitante(e.target.value)
+          }
           className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
         />
 
