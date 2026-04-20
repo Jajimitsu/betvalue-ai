@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function Home() {
   const [local, setLocal] = useState("");
   const [visitante, setVisitante] = useState("");
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const [equipos, setEquipos] = useState<string[]>([]);
+  const [showLocal, setShowLocal] = useState(false);
+  const [showVisit, setShowVisit] = useState(false);
 
   const alias: Record<string, string> = {
     psg: "Paris Saint-Germain",
@@ -20,6 +24,35 @@ export default function Home() {
     mancity: "Manchester City",
     manutd: "Manchester United",
   };
+
+  useEffect(() => {
+    cargarEquipos();
+  }, []);
+
+  async function cargarEquipos() {
+    const ligas = [
+      "PD","SD","PL","SA","BL1","FL1",
+      "CL","EL","ECL","PPL","DED",
+      "ELC","TSL","BSA","ARG"
+    ];
+
+    const lista = new Set<string>();
+
+    for (const liga of ligas) {
+      try {
+        const res = await fetch(`/api/matches?league=${liga}`);
+        const data = await res.json();
+
+        if (!data.standings?.[0]?.table) continue;
+
+        data.standings[0].table.forEach((t: any) => {
+          lista.add(t.team.name);
+        });
+      } catch {}
+    }
+
+    setEquipos([...lista].sort());
+  }
 
   function normalizar(texto: string) {
     return texto
@@ -41,6 +74,22 @@ export default function Home() {
     return alias[key] || texto;
   }
 
+  const sugerenciasLocal = useMemo(() => {
+    if (local.length < 2) return [];
+    const q = normalizar(local);
+    return equipos
+      .filter((e) => normalizar(e).includes(q))
+      .slice(0, 8);
+  }, [local, equipos]);
+
+  const sugerenciasVisit = useMemo(() => {
+    if (visitante.length < 2) return [];
+    const q = normalizar(visitante);
+    return equipos
+      .filter((e) => normalizar(e).includes(q))
+      .slice(0, 8);
+  }, [visitante, equipos]);
+
   async function buscarLiga(
     equipoLocalTexto: string,
     equipoVisitTexto: string
@@ -51,25 +100,36 @@ export default function Home() {
       "ELC","TSL","BSA","ARG"
     ];
 
-    const buscadoLocal = normalizar(corregirAlias(equipoLocalTexto));
-    const buscadoVisit = normalizar(corregirAlias(equipoVisitTexto));
+    const buscadoLocal = normalizar(
+      corregirAlias(equipoLocalTexto)
+    );
+
+    const buscadoVisit = normalizar(
+      corregirAlias(equipoVisitTexto)
+    );
 
     for (const liga of ligas) {
       const res = await fetch(`/api/matches?league=${liga}`);
       const data = await res.json();
 
-      if (!data.standings || !data.standings[0]) continue;
+      if (!data.standings?.[0]?.table) continue;
 
       const tabla = data.standings[0].table;
 
       const equipoLocal = tabla.find((t: any) => {
         const nombre = normalizar(t.team.name);
-        return nombre.includes(buscadoLocal) || buscadoLocal.includes(nombre);
+        return (
+          nombre.includes(buscadoLocal) ||
+          buscadoLocal.includes(nombre)
+        );
       });
 
       const equipoVisitante = tabla.find((t: any) => {
         const nombre = normalizar(t.team.name);
-        return nombre.includes(buscadoVisit) || buscadoVisit.includes(nombre);
+        return (
+          nombre.includes(buscadoVisit) ||
+          buscadoVisit.includes(nombre)
+        );
       });
 
       if (equipoLocal && equipoVisitante) {
@@ -109,48 +169,6 @@ export default function Home() {
     }
   }
 
-  async function buscarCuota(local: string, visitante: string) {
-    try {
-      const res = await fetch("/api/odds");
-      const data = await res.json();
-
-      const partido = data.find((m: any) => {
-        const home = normalizar(m.home_team);
-        const away = normalizar(m.away_team);
-
-        return (
-          home.includes(normalizar(local)) &&
-          away.includes(normalizar(visitante))
-        );
-      });
-
-      if (!partido) return null;
-
-      const cuotaLocal =
-        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
-          (o: any) => o.name === partido.home_team
-        )?.price;
-
-      const cuotaEmpate =
-        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
-          (o: any) => o.name === "Draw"
-        )?.price;
-
-      const cuotaVisit =
-        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
-          (o: any) => o.name === partido.away_team
-        )?.price;
-
-      return {
-        cuotaLocal,
-        cuotaEmpate,
-        cuotaVisit,
-      };
-    } catch {
-      return null;
-    }
-  }
-
   function contar(forma: string, letra: string) {
     return (forma.match(new RegExp(letra, "g")) || []).length;
   }
@@ -174,8 +192,13 @@ export default function Home() {
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
-    const formaLocal = await obtenerForma(equipoLocal.team.id);
-    const formaVisit = await obtenerForma(equipoVisitante.team.id);
+    const formaLocal = await obtenerForma(
+      equipoLocal.team.id
+    );
+
+    const formaVisit = await obtenerForma(
+      equipoVisitante.team.id
+    );
 
     const formaPtsLocal =
       contar(formaLocal, "V") * 3 +
@@ -221,60 +244,17 @@ export default function Home() {
     probVisit = 100 - probLocal - probEmpate;
 
     let recomendacion = "Partido equilibrado";
-    let probElegida = probLocal;
 
-    if (probLocal >= 57) {
+    if (probLocal >= 57)
       recomendacion = "Victoria local";
-      probElegida = probLocal;
-    } else if (probVisit >= 57) {
+    else if (probVisit >= 57)
       recomendacion = "Victoria visitante";
-      probElegida = probVisit;
-    } else if (
+    else if (
       equipoLocal.goalsFor > 45 &&
       equipoVisitante.goalsFor > 45
-    ) {
+    )
       recomendacion = "Ambos marcan";
-    } else {
-      recomendacion = "Doble oportunidad local";
-    }
-
-    const odds = await buscarCuota(
-      equipoLocal.team.name,
-      equipoVisitante.team.name
-    );
-
-    let cuotaMercado = null;
-
-    if (odds) {
-      if (recomendacion === "Victoria local")
-        cuotaMercado = odds.cuotaLocal;
-      else if (
-        recomendacion === "Victoria visitante"
-      )
-        cuotaMercado = odds.cuotaVisit;
-    }
-
-    let textoValue = "Sin cuota disponible";
-    let cuotaJusta = null;
-
-    if (cuotaMercado && probElegida > 0) {
-      cuotaJusta = (
-        100 / probElegida
-      ).toFixed(2);
-
-      if (
-        cuotaMercado >
-        parseFloat(cuotaJusta)
-      ) {
-        textoValue = "🔥 VALUE BET";
-      } else if (cuotaMercado < 1.40) {
-        textoValue =
-          "⚠️ Cuota muy baja";
-      } else {
-        textoValue =
-          "❌ Sin valor";
-      }
-    }
+    else recomendacion = "Doble oportunidad local";
 
     setResult(`
 ⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
@@ -292,14 +272,6 @@ ${equipoVisitante.team.name}: ${formaVisit}
 
 🎯 Recomendación:
 ${recomendacion}
-
-💰 Cuota mercado:
-${cuotaMercado ?? "-"}
-
-📐 Cuota justa:
-${cuotaJusta ?? "-"}
-
-${textoValue}
     `);
 
     setLoading(false);
@@ -308,6 +280,7 @@ ${textoValue}
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
+
         <div className="flex flex-col items-center mb-8">
           <img
             src="/logo.png"
@@ -320,27 +293,69 @@ ${textoValue}
           </h1>
 
           <p className="text-gray-300 mt-2 text-center">
-            Value Bet Engine V3
+            Autocomplete V4
           </p>
         </div>
 
-        <input
-          type="text"
-          placeholder="Equipo local"
-          value={local}
-          onChange={(e) => setLocal(e.target.value)}
-          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
-        />
+        <div className="relative mb-4">
+          <input
+            type="text"
+            placeholder="Equipo local"
+            value={local}
+            onChange={(e) => {
+              setLocal(e.target.value);
+              setShowLocal(true);
+            }}
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
+          />
 
-        <input
-          type="text"
-          placeholder="Equipo visitante"
-          value={visitante}
-          onChange={(e) =>
-            setVisitante(e.target.value)
-          }
-          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
-        />
+          {showLocal && sugerenciasLocal.length > 0 && (
+            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
+              {sugerenciasLocal.map((eq) => (
+                <div
+                  key={eq}
+                  onClick={() => {
+                    setLocal(eq);
+                    setShowLocal(false);
+                  }}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                >
+                  {eq}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="relative mb-4">
+          <input
+            type="text"
+            placeholder="Equipo visitante"
+            value={visitante}
+            onChange={(e) => {
+              setVisitante(e.target.value);
+              setShowVisit(true);
+            }}
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
+          />
+
+          {showVisit && sugerenciasVisit.length > 0 && (
+            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
+              {sugerenciasVisit.map((eq) => (
+                <div
+                  key={eq}
+                  onClick={() => {
+                    setVisitante(eq);
+                    setShowVisit(false);
+                  }}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                >
+                  {eq}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button
           onClick={analizarPartido}
@@ -357,6 +372,7 @@ ${textoValue}
             {result}
           </div>
         )}
+
       </div>
     </main>
   );
