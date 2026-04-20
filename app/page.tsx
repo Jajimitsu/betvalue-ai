@@ -14,7 +14,6 @@ type TeamItem = {
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState("Cargando equipos...");
-
   const [teams, setTeams] = useState<TeamItem[]>([]);
 
   const [localText, setLocalText] = useState("");
@@ -38,21 +37,9 @@ export default function Home() {
 
   async function cargarEquipos() {
     const ligas = [
-      "PD",
-      "SD",
-      "PL",
-      "SA",
-      "BL1",
-      "FL1",
-      "CL",
-      "EL",
-      "ECL",
-      "PPL",
-      "DED",
-      "ELC",
-      "TSL",
-      "BSA",
-      "ARG",
+      "PD","SD","PL","SA","BL1","FL1",
+      "CL","EL","ECL","PPL","DED",
+      "ELC","TSL","BSA","ARG"
     ];
 
     let lista: TeamItem[] = [];
@@ -68,24 +55,22 @@ export default function Home() {
         if (!data.standings?.[0]?.table)
           continue;
 
-        const tabla =
-          data.standings[0].table;
-
-        tabla.forEach((t: any) => {
-          lista.push({
-            id: t.team.id,
-            name: t.team.name,
-            league: liga,
-            position: t.position,
-            goalsFor: t.goalsFor,
-            goalsAgainst:
-              t.goalsAgainst,
-          });
-        });
+        data.standings[0].table.forEach(
+          (t: any) => {
+            lista.push({
+              id: t.team.id,
+              name: t.team.name,
+              league: liga,
+              position: t.position,
+              goalsFor: t.goalsFor,
+              goalsAgainst:
+                t.goalsAgainst,
+            });
+          }
+        );
       } catch {}
     }
 
-    // quitar duplicados por id
     const unicos = lista.filter(
       (team, index, self) =>
         index ===
@@ -98,16 +83,11 @@ export default function Home() {
     setResult("");
   }
 
-  function normalizar(
-    texto: string
-  ) {
+  function normalizar(texto: string) {
     return texto
       .toLowerCase()
       .normalize("NFD")
-      .replace(
-        /[\u0300-\u036f]/g,
-        ""
-      )
+      .replace(/[\u0300-\u036f]/g, "")
       .replace(/fc/g, "")
       .replace(/cf/g, "")
       .replace(/-/g, " ")
@@ -117,35 +97,25 @@ export default function Home() {
   }
 
   const localSug = useMemo(() => {
-    if (localText.length < 2)
-      return [];
+    if (localText.length < 2) return [];
 
-    const q = normalizar(
-      localText
-    );
+    const q = normalizar(localText);
 
     return teams
       .filter((t) =>
-        normalizar(
-          t.name
-        ).includes(q)
+        normalizar(t.name).includes(q)
       )
       .slice(0, 8);
   }, [localText, teams]);
 
   const visitSug = useMemo(() => {
-    if (visitText.length < 2)
-      return [];
+    if (visitText.length < 2) return [];
 
-    const q = normalizar(
-      visitText
-    );
+    const q = normalizar(visitText);
 
     return teams
       .filter((t) =>
-        normalizar(
-          t.name
-        ).includes(q)
+        normalizar(t.name).includes(q)
       )
       .slice(0, 8);
   }, [visitText, teams]);
@@ -189,6 +159,77 @@ export default function Home() {
         .join(" ");
     } catch {
       return "Sin datos";
+    }
+  }
+
+  async function buscarCuotas(
+    local: string,
+    visit: string
+  ) {
+    try {
+      const res = await fetch(
+        "/api/odds"
+      );
+
+      const data =
+        await res.json();
+
+      const partido =
+        data.find((m: any) => {
+          const home =
+            normalizar(
+              m.home_team
+            );
+
+          const away =
+            normalizar(
+              m.away_team
+            );
+
+          return (
+            home.includes(
+              normalizar(
+                local
+              )
+            ) &&
+            away.includes(
+              normalizar(
+                visit
+              )
+            )
+          );
+        });
+
+      if (!partido)
+        return null;
+
+      const outs =
+        partido
+          .bookmakers?.[0]
+          ?.markets?.[0]
+          ?.outcomes || [];
+
+      return {
+        local: outs.find(
+          (o: any) =>
+            o.name ===
+            partido.home_team
+        )?.price,
+
+        empate: outs.find(
+          (o: any) =>
+            o.name ===
+            "Draw"
+        )?.price,
+
+        visit: outs.find(
+          (o: any) =>
+            o.name ===
+            partido.away_team
+        )?.price,
+      };
+    } catch {
+      return null;
     }
   }
 
@@ -316,28 +357,71 @@ export default function Home() {
       probLocal -
       probEmpate;
 
-    let recomendacion =
-      "Partido equilibrado";
+    const cuotas =
+      await buscarCuotas(
+        localTeam.name,
+        visitTeam.name
+      );
 
-    if (probLocal >= 57)
-      recomendacion =
-        "Victoria local";
-    else if (
-      probVisit >= 57
-    )
-      recomendacion =
-        "Victoria visitante";
-    else if (
-      localTeam.goalsFor >
-        45 &&
-      visitTeam.goalsFor >
-        45
-    )
-      recomendacion =
-        "Ambos marcan";
-    else
-      recomendacion =
-        "Doble oportunidad local";
+    let recomendacion =
+      "⚠️ Sin valor claro";
+
+    let detalle =
+      "Mejor pasar partido";
+
+    if (cuotas) {
+      const valorLocal =
+        cuotas.local
+          ? probLocal /
+            100 *
+            cuotas.local
+          : 0;
+
+      const valorEmp =
+        cuotas.empate
+          ? probEmpate /
+            100 *
+            cuotas.empate
+          : 0;
+
+      const valorVisit =
+        cuotas.visit
+          ? probVisit /
+            100 *
+            cuotas.visit
+          : 0;
+
+      const mejor =
+        Math.max(
+          valorLocal,
+          valorEmp,
+          valorVisit
+        );
+
+      if (
+        mejor > 1.05
+      ) {
+        if (
+          mejor ===
+          valorLocal
+        ) {
+          recomendacion =
+            "🏠 Victoria local";
+          detalle = `Cuota ${cuotas.local}`;
+        } else if (
+          mejor ===
+          valorVisit
+        ) {
+          recomendacion =
+            "✈️ Victoria visitante";
+          detalle = `Cuota ${cuotas.visit}`;
+        } else {
+          recomendacion =
+            "🤝 Empate";
+          detalle = `Cuota ${cuotas.empate}`;
+        }
+      }
+    }
 
     setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
@@ -349,13 +433,15 @@ ${localTeam.league}
 ${localTeam.name}: ${formaLocal}
 ${visitTeam.name}: ${formaVisit}
 
-📊 Probabilidades:
+📊 Probabilidades modelo:
 🏠 ${probLocal}%
 🤝 ${probEmpate}%
 ✈️ ${probVisit}%
 
-🎯 Recomendación:
+🎯 Value Bet:
 ${recomendacion}
+
+💰 ${detalle}
     `);
 
     setLoading(false);
@@ -377,11 +463,10 @@ ${recomendacion}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V5 Definitivo
+            Value Real V6
           </p>
         </div>
 
-        {/* LOCAL */}
         <div className="relative mb-4">
           <input
             value={localText}
@@ -431,7 +516,6 @@ ${recomendacion}
             )}
         </div>
 
-        {/* VISIT */}
         <div className="relative mb-4">
           <input
             value={visitText}
