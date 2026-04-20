@@ -45,7 +45,23 @@ export default function Home() {
     equipoLocalTexto: string,
     equipoVisitTexto: string
   ) {
-    const ligas = ["CL", "PD", "PL", "SA", "BL1", "FL1"];
+    const ligas = [
+    "PD",
+    "SD",
+    "PL",
+    "SA",
+    "BL1",
+    "FL1",
+    "CL",
+    "EL",
+    "ECL",
+    "PPL",
+    "DED",
+    "ELC",
+    "TSL",
+    "BSA",
+    "ARG"
+];
 
     const buscadoLocal = normalizar(
       corregirAlias(equipoLocalTexto)
