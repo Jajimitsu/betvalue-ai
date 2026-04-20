@@ -1,60 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type Equipo = {
+  id: number;
+  name: string;
+  position: number;
+  goalsFor: number;
+  goalsAgainst: number;
+};
 
 export default function Home() {
-  const [match, setMatch] = useState("");
+  const [localText, setLocalText] = useState("");
+  const [visitText, setVisitText] = useState("");
+
+  const [localTeam, setLocalTeam] = useState<Equipo | null>(
+    null
+  );
+  const [visitTeam, setVisitTeam] = useState<Equipo | null>(
+    null
+  );
+
+  const [teams, setTeams] = useState<Equipo[]>([]);
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const alias: Record<string, string> = {
-    psg: "paris saint germain",
-    lyon: "olympique lyonnais",
-    inter: "internazionale",
-    milan: "ac milan",
-    barca: "barcelona",
-    atleti: "atletico madrid",
-    atleti: "atletico madrid",
-    manchesterutd: "manchester united",
-    manutd: "manchester united",
-    manc ity: "manchester city",
-    mancity: "manchester city",
-    bayern: "bayern munich",
-    juve: "juventus",
-    sporting: "sporting cp",
-    benfica: "sl benfica",
-    porto: "fc porto",
-    napoli: "ssc napoli",
-  };
+  useEffect(() => {
+    cargarEquipos();
+  }, []);
 
-  function normalizar(texto: string) {
-    return texto
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/fc/g, "")
-      .replace(/cf/g, "")
-      .replace(/club de futbol/g, "")
-      .replace(/club de football/g, "")
-      .replace(/real /g, "")
-      .replace(/-/g, " ")
-      .replace(/\./g, "")
-      .replace(/\s+/g, "")
-      .trim();
-  }
-
-  function limpiarBusqueda(texto: string) {
-    const key = normalizar(texto);
-    return alias[key]
-      ? normalizar(alias[key])
-      : key;
-  }
-
-  async function buscarLiga(local: string, visitante: string) {
+  async function cargarEquipos() {
     const ligas = ["CL", "PD", "PL", "SA", "BL1", "FL1"];
-
-    const localBuscado = limpiarBusqueda(local);
-    const visitBuscado = limpiarBusqueda(visitante);
+    let todos: Equipo[] = [];
 
     for (const liga of ligas) {
       const res = await fetch(`/api/matches?league=${liga}`);
@@ -64,28 +41,35 @@ export default function Home() {
 
       const tabla = data.standings[0].table;
 
-      const equipoLocal = tabla.find((t: any) => {
-        const nombre = normalizar(t.team.name);
-        return (
-          nombre.includes(localBuscado) ||
-          localBuscado.includes(nombre)
-        );
-      });
+      const lista = tabla.map((t: any) => ({
+        id: t.team.id,
+        name: t.team.name,
+        position: t.position,
+        goalsFor: t.goalsFor,
+        goalsAgainst: t.goalsAgainst,
+      }));
 
-      const equipoVisitante = tabla.find((t: any) => {
-        const nombre = normalizar(t.team.name);
-        return (
-          nombre.includes(visitBuscado) ||
-          visitBuscado.includes(nombre)
-        );
-      });
-
-      if (equipoLocal && equipoVisitante) {
-        return { liga, equipoLocal, equipoVisitante };
-      }
+      todos = [...todos, ...lista];
     }
 
-    return null;
+    // quitar duplicados por id
+    const unicos = todos.filter(
+      (team, index, self) =>
+        index ===
+        self.findIndex((t) => t.id === team.id)
+    );
+
+    setTeams(unicos);
+  }
+
+  function sugerencias(texto: string) {
+    if (!texto) return [];
+
+    return teams
+      .filter((t) =>
+        t.name.toLowerCase().includes(texto.toLowerCase())
+      )
+      .slice(0, 6);
   }
 
   async function obtenerForma(teamId: number) {
@@ -122,82 +106,70 @@ export default function Home() {
   }
 
   async function analizarPartido() {
-    if (!match.toLowerCase().includes("vs")) {
-      setResult("Escribe así: PSG vs Lyon");
+    if (!localTeam || !visitTeam) {
+      setResult(
+        "Selecciona ambos equipos desde sugerencias."
+      );
       return;
     }
 
     setLoading(true);
-    setResult("Buscando equipos...");
+    setResult("Analizando partido...");
 
-    const partes = match.split(/vs/i);
-    const local = partes[0].trim();
-    const visitante = partes[1].trim();
-
-    const datos = await buscarLiga(local, visitante);
-
-    if (!datos) {
-      setLoading(false);
-      setResult("No encontré esos equipos.");
-      return;
-    }
-
-    const { liga, equipoLocal, equipoVisitante } = datos;
-
-    const formaLocal = await obtenerForma(
-      equipoLocal.team.id
-    );
-
-    const formaVisitante = await obtenerForma(
-      equipoVisitante.team.id
-    );
+    const formaLocal = await obtenerForma(localTeam.id);
+    const formaVisit = await obtenerForma(visitTeam.id);
 
     let probLocal = 40;
     let probEmpate = 27;
-    let probVisitante = 33;
+    let probVisit = 33;
 
-    if (equipoLocal.position < equipoVisitante.position) {
+    // clasificación
+    if (localTeam.position < visitTeam.position) {
       probLocal += 8;
-      probVisitante -= 8;
+      probVisit -= 8;
     } else {
-      probVisitante += 8;
+      probVisit += 8;
       probLocal -= 8;
     }
 
+    // ventaja local
     probLocal += 7;
 
+    // forma
     probLocal += contar(formaLocal, "V") * 2;
-    probVisitante += contar(formaVisitante, "V") * 2;
+    probVisit += contar(formaVisit, "V") * 2;
 
     const total =
-      probLocal + probEmpate + probVisitante;
+      probLocal + probEmpate + probVisit;
 
     probLocal = Math.round((probLocal / total) * 100);
     probEmpate = Math.round((probEmpate / total) * 100);
-    probVisitante =
-      100 - probLocal - probEmpate;
+    probVisit = 100 - probLocal - probEmpate;
 
     let recomendacion = "Partido equilibrado";
 
     if (probLocal >= 56)
       recomendacion = "Victoria local";
-    else if (probVisitante >= 56)
+    else if (probVisit >= 56)
       recomendacion = "Victoria visitante";
-    else recomendacion = "Ambos marcan";
+    else if (
+      localTeam.goalsFor > 45 &&
+      visitTeam.goalsFor > 45
+    )
+      recomendacion = "Ambos marcan";
+    else recomendacion = "Doble oportunidad local";
 
     setResult(`
-⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
+⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🏆 Competición: ${liga}
-
-📈 Forma:
-${equipoLocal.team.name}: ${formaLocal}
-${equipoVisitante.team.name}: ${formaVisitante}
+📈 Últimos 5:
+${localTeam.name}: ${formaLocal}
+${visitTeam.name}: ${formaVisit}
 
 📊 Probabilidades:
 🏠 ${probLocal}%
 🤝 ${probEmpate}%
-✈️ ${probVisitante}%
+✈️ ${probVisit}%
 
 🎯 Recomendación:
 ${recomendacion}
@@ -205,6 +177,9 @@ ${recomendacion}
 
     setLoading(false);
   }
+
+  const sugerLocal = sugerencias(localText);
+  const sugerVisit = sugerencias(visitText);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
@@ -216,30 +191,82 @@ ${recomendacion}
             alt="BetValue AI"
             className="w-40 mb-4"
           />
-
           <h1 className="text-4xl font-bold text-green-400">
             BetValue AI
           </h1>
-
-          <p className="text-gray-300 mt-2 text-center">
-            Buscador PRO inteligente
+          <p className="text-gray-300 mt-2">
+            Autocomplete PRO
           </p>
         </div>
 
-        <input
-          type="text"
-          placeholder="Ej: PSG vs Lyon"
-          value={match}
-          onChange={(e) => setMatch(e.target.value)}
-          className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
-        />
+        {/* LOCAL */}
+        <div className="mb-4 relative">
+          <input
+            value={localText}
+            onChange={(e) => {
+              setLocalText(e.target.value);
+              setLocalTeam(null);
+            }}
+            placeholder="Equipo local"
+            className="w-full bg-white text-black px-4 py-3 rounded-2xl"
+          />
+
+          {localText && !localTeam && (
+            <div className="absolute w-full bg-white text-black rounded-xl mt-1 overflow-hidden z-10">
+              {sugerLocal.map((team) => (
+                <div
+                  key={team.id}
+                  onClick={() => {
+                    setLocalTeam(team);
+                    setLocalText(team.name);
+                  }}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                >
+                  {team.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* VISITANTE */}
+        <div className="mb-4 relative">
+          <input
+            value={visitText}
+            onChange={(e) => {
+              setVisitText(e.target.value);
+              setVisitTeam(null);
+            }}
+            placeholder="Equipo visitante"
+            className="w-full bg-white text-black px-4 py-3 rounded-2xl"
+          />
+
+          {visitText && !visitTeam && (
+            <div className="absolute w-full bg-white text-black rounded-xl mt-1 overflow-hidden z-10">
+              {sugerVisit.map((team) => (
+                <div
+                  key={team.id}
+                  onClick={() => {
+                    setVisitTeam(team);
+                    setVisitText(team.name);
+                  }}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                >
+                  {team.name}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <button
           onClick={analizarPartido}
           disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
-          {loading ? "Analizando..." : "Analizar Partido"}
+          {loading
+            ? "Analizando..."
+            : "Analizar Partido"}
         </button>
 
         {result && (
