@@ -46,30 +46,13 @@ export default function Home() {
     equipoVisitTexto: string
   ) {
     const ligas = [
-    "PD",
-    "SD",
-    "PL",
-    "SA",
-    "BL1",
-    "FL1",
-    "CL",
-    "EL",
-    "ECL",
-    "PPL",
-    "DED",
-    "ELC",
-    "TSL",
-    "BSA",
-    "ARG"
-];
+      "PD","SD","PL","SA","BL1","FL1",
+      "CL","EL","ECL","PPL","DED",
+      "ELC","TSL","BSA","ARG"
+    ];
 
-    const buscadoLocal = normalizar(
-      corregirAlias(equipoLocalTexto)
-    );
-
-    const buscadoVisit = normalizar(
-      corregirAlias(equipoVisitTexto)
-    );
+    const buscadoLocal = normalizar(corregirAlias(equipoLocalTexto));
+    const buscadoVisit = normalizar(corregirAlias(equipoVisitTexto));
 
     for (const liga of ligas) {
       const res = await fetch(`/api/matches?league=${liga}`);
@@ -81,18 +64,12 @@ export default function Home() {
 
       const equipoLocal = tabla.find((t: any) => {
         const nombre = normalizar(t.team.name);
-        return (
-          nombre.includes(buscadoLocal) ||
-          buscadoLocal.includes(nombre)
-        );
+        return nombre.includes(buscadoLocal) || buscadoLocal.includes(nombre);
       });
 
       const equipoVisitante = tabla.find((t: any) => {
         const nombre = normalizar(t.team.name);
-        return (
-          nombre.includes(buscadoVisit) ||
-          buscadoVisit.includes(nombre)
-        );
+        return nombre.includes(buscadoVisit) || buscadoVisit.includes(nombre);
       });
 
       if (equipoLocal && equipoVisitante) {
@@ -132,6 +109,48 @@ export default function Home() {
     }
   }
 
+  async function buscarCuota(local: string, visitante: string) {
+    try {
+      const res = await fetch("/api/odds");
+      const data = await res.json();
+
+      const partido = data.find((m: any) => {
+        const home = normalizar(m.home_team);
+        const away = normalizar(m.away_team);
+
+        return (
+          home.includes(normalizar(local)) &&
+          away.includes(normalizar(visitante))
+        );
+      });
+
+      if (!partido) return null;
+
+      const cuotaLocal =
+        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
+          (o: any) => o.name === partido.home_team
+        )?.price;
+
+      const cuotaEmpate =
+        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
+          (o: any) => o.name === "Draw"
+        )?.price;
+
+      const cuotaVisit =
+        partido.bookmakers?.[0]?.markets?.[0]?.outcomes?.find(
+          (o: any) => o.name === partido.away_team
+        )?.price;
+
+      return {
+        cuotaLocal,
+        cuotaEmpate,
+        cuotaVisit,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   function contar(forma: string, letra: string) {
     return (forma.match(new RegExp(letra, "g")) || []).length;
   }
@@ -143,39 +162,11 @@ export default function Home() {
     }
 
     setLoading(true);
-    setResult("Buscando partido...");
+    setResult("Analizando partido...");
 
-    let datos = await buscarLiga(local, visitante);
+    const datos = await buscarLiga(local, visitante);
 
     if (!datos) {
-      try {
-        const resLocal = await fetch(
-          `/api/search-team?name=${local}`
-        );
-
-        const dataLocal = await resLocal.json();
-
-        const resVisit = await fetch(
-          `/api/search-team?name=${visitante}`
-        );
-
-        const dataVisit = await resVisit.json();
-
-        if (
-          dataLocal.teams?.length > 0 &&
-          dataVisit.teams?.length > 0
-        ) {
-          setLoading(false);
-          setResult(`
-⚽ ${dataLocal.teams[0].name} vs ${dataVisit.teams[0].name}
-
-🌍 Equipos encontrados por buscador global.
-📌 Próxima mejora: análisis global completo.
-          `);
-          return;
-        }
-      } catch {}
-
       setLoading(false);
       setResult("No encontré esos equipos.");
       return;
@@ -183,30 +174,44 @@ export default function Home() {
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
-    const formaLocal = await obtenerForma(
-      equipoLocal.team.id
-    );
+    const formaLocal = await obtenerForma(equipoLocal.team.id);
+    const formaVisit = await obtenerForma(equipoVisitante.team.id);
 
-    const formaVisit = await obtenerForma(
-      equipoVisitante.team.id
-    );
+    const formaPtsLocal =
+      contar(formaLocal, "V") * 3 +
+      contar(formaLocal, "E");
+
+    const formaPtsVisit =
+      contar(formaVisit, "V") * 3 +
+      contar(formaVisit, "E");
 
     let probLocal = 40;
-    let probEmpate = 27;
-    let probVisit = 33;
+    let probEmpate = 28;
+    let probVisit = 32;
 
     if (equipoLocal.position < equipoVisitante.position) {
-      probLocal += 8;
-      probVisit -= 8;
+      probLocal += 6;
+      probVisit -= 6;
     } else {
-      probVisit += 8;
-      probLocal -= 8;
+      probVisit += 6;
+      probLocal -= 6;
     }
 
-    probLocal += 7;
+    probLocal += 6;
 
-    probLocal += contar(formaLocal, "V") * 2;
-    probVisit += contar(formaVisit, "V") * 2;
+    probLocal += Math.round(formaPtsLocal / 3);
+    probVisit += Math.round(formaPtsVisit / 3);
+
+    if (equipoLocal.goalsFor > equipoVisitante.goalsFor)
+      probLocal += 4;
+    else probVisit += 4;
+
+    if (
+      equipoLocal.goalsAgainst <
+      equipoVisitante.goalsAgainst
+    )
+      probLocal += 4;
+    else probVisit += 4;
 
     const total =
       probLocal + probEmpate + probVisit;
@@ -216,34 +221,85 @@ export default function Home() {
     probVisit = 100 - probLocal - probEmpate;
 
     let recomendacion = "Partido equilibrado";
+    let probElegida = probLocal;
 
-    if (probLocal >= 56)
+    if (probLocal >= 57) {
       recomendacion = "Victoria local";
-    else if (probVisit >= 56)
+      probElegida = probLocal;
+    } else if (probVisit >= 57) {
       recomendacion = "Victoria visitante";
-    else if (
+      probElegida = probVisit;
+    } else if (
       equipoLocal.goalsFor > 45 &&
       equipoVisitante.goalsFor > 45
-    )
+    ) {
       recomendacion = "Ambos marcan";
-    else recomendacion = "Doble oportunidad local";
+    } else {
+      recomendacion = "Doble oportunidad local";
+    }
+
+    const odds = await buscarCuota(
+      equipoLocal.team.name,
+      equipoVisitante.team.name
+    );
+
+    let cuotaMercado = null;
+
+    if (odds) {
+      if (recomendacion === "Victoria local")
+        cuotaMercado = odds.cuotaLocal;
+      else if (
+        recomendacion === "Victoria visitante"
+      )
+        cuotaMercado = odds.cuotaVisit;
+    }
+
+    let textoValue = "Sin cuota disponible";
+    let cuotaJusta = null;
+
+    if (cuotaMercado && probElegida > 0) {
+      cuotaJusta = (
+        100 / probElegida
+      ).toFixed(2);
+
+      if (
+        cuotaMercado >
+        parseFloat(cuotaJusta)
+      ) {
+        textoValue = "🔥 VALUE BET";
+      } else if (cuotaMercado < 1.40) {
+        textoValue =
+          "⚠️ Cuota muy baja";
+      } else {
+        textoValue =
+          "❌ Sin valor";
+      }
+    }
 
     setResult(`
 ⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
 
 🏆 Competición: ${liga}
 
-📈 Forma:
+📈 Forma últimos 5:
 ${equipoLocal.team.name}: ${formaLocal}
 ${equipoVisitante.team.name}: ${formaVisit}
 
 📊 Probabilidades:
-🏠 ${probLocal}%
-🤝 ${probEmpate}%
-✈️ ${probVisit}%
+🏠 Local ${probLocal}%
+🤝 Empate ${probEmpate}%
+✈️ Visitante ${probVisit}%
 
 🎯 Recomendación:
 ${recomendacion}
+
+💰 Cuota mercado:
+${cuotaMercado ?? "-"}
+
+📐 Cuota justa:
+${cuotaJusta ?? "-"}
+
+${textoValue}
     `);
 
     setLoading(false);
@@ -252,7 +308,6 @@ ${recomendacion}
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
-
         <div className="flex flex-col items-center mb-8">
           <img
             src="/logo.png"
@@ -265,7 +320,7 @@ ${recomendacion}
           </h1>
 
           <p className="text-gray-300 mt-2 text-center">
-            Dos celdas PRO
+            Value Bet Engine V3
           </p>
         </div>
 
@@ -302,7 +357,6 @@ ${recomendacion}
             {result}
           </div>
         )}
-
       </div>
     </main>
   );
