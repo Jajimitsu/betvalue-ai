@@ -132,10 +132,40 @@ export default function Home() {
     const datos = await buscarLiga(local, visitante);
 
     if (!datos) {
+  try {
+    const resLocal = await fetch(
+      `/api/search-team?name=${local}`
+    );
+
+    const dataLocal = await resLocal.json();
+
+    const resVisit = await fetch(
+      `/api/search-team?name=${visitante}`
+    );
+
+    const dataVisit = await resVisit.json();
+
+    if (
+      dataLocal.teams?.length > 0 &&
+      dataVisit.teams?.length > 0
+    ) {
       setLoading(false);
-      setResult("No encontré esos equipos.");
+      setResult(`
+⚽ ${dataLocal.teams[0].name} vs ${dataVisit.teams[0].name}
+
+🌍 Equipos encontrados por buscador global.
+
+📌 Próxima mejora:
+análisis completo global.
+      `);
       return;
     }
+  } catch {}
+
+  setLoading(false);
+  setResult("No encontré esos equipos.");
+  return;
+}
 
     const { liga, equipoLocal, equipoVisitante } = datos;
 
