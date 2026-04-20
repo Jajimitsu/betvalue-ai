@@ -7,19 +7,54 @@ export default function Home() {
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
 
-  function limpiar(texto: string) {
+  const alias: Record<string, string> = {
+    psg: "paris saint germain",
+    lyon: "olympique lyonnais",
+    inter: "internazionale",
+    milan: "ac milan",
+    barca: "barcelona",
+    atleti: "atletico madrid",
+    atleti: "atletico madrid",
+    manchesterutd: "manchester united",
+    manutd: "manchester united",
+    manc ity: "manchester city",
+    mancity: "manchester city",
+    bayern: "bayern munich",
+    juve: "juventus",
+    sporting: "sporting cp",
+    benfica: "sl benfica",
+    porto: "fc porto",
+    napoli: "ssc napoli",
+  };
+
+  function normalizar(texto: string) {
     return texto
       .toLowerCase()
-      .replace("fc", "")
-      .replace("cf", "")
-      .replace("real ", "")
-      .replace("club de fútbol", "")
-      .replace("club de futbol", "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/fc/g, "")
+      .replace(/cf/g, "")
+      .replace(/club de futbol/g, "")
+      .replace(/club de football/g, "")
+      .replace(/real /g, "")
+      .replace(/-/g, " ")
+      .replace(/\./g, "")
+      .replace(/\s+/g, "")
       .trim();
+  }
+
+  function limpiarBusqueda(texto: string) {
+    const key = normalizar(texto);
+    return alias[key]
+      ? normalizar(alias[key])
+      : key;
   }
 
   async function buscarLiga(local: string, visitante: string) {
     const ligas = ["CL", "PD", "PL", "SA", "BL1", "FL1"];
+
+    const localBuscado = limpiarBusqueda(local);
+    const visitBuscado = limpiarBusqueda(visitante);
 
     for (const liga of ligas) {
       const res = await fetch(`/api/matches?league=${liga}`);
@@ -29,13 +64,21 @@ export default function Home() {
 
       const tabla = data.standings[0].table;
 
-      const equipoLocal = tabla.find((t: any) =>
-        limpiar(t.team.name).includes(limpiar(local))
-      );
+      const equipoLocal = tabla.find((t: any) => {
+        const nombre = normalizar(t.team.name);
+        return (
+          nombre.includes(localBuscado) ||
+          localBuscado.includes(nombre)
+        );
+      });
 
-      const equipoVisitante = tabla.find((t: any) =>
-        limpiar(t.team.name).includes(limpiar(visitante))
-      );
+      const equipoVisitante = tabla.find((t: any) => {
+        const nombre = normalizar(t.team.name);
+        return (
+          nombre.includes(visitBuscado) ||
+          visitBuscado.includes(nombre)
+        );
+      });
 
       if (equipoLocal && equipoVisitante) {
         return { liga, equipoLocal, equipoVisitante };
@@ -79,15 +122,15 @@ export default function Home() {
   }
 
   async function analizarPartido() {
-    if (!match.includes("vs")) {
-      setResult("Escribe así: Everton vs Liverpool");
+    if (!match.toLowerCase().includes("vs")) {
+      setResult("Escribe así: PSG vs Lyon");
       return;
     }
 
     setLoading(true);
-    setResult("Analizando partido...");
+    setResult("Buscando equipos...");
 
-    const partes = match.split("vs");
+    const partes = match.split(/vs/i);
     const local = partes[0].trim();
     const visitante = partes[1].trim();
 
@@ -95,7 +138,7 @@ export default function Home() {
 
     if (!datos) {
       setLoading(false);
-      setResult("No encontré ambos equipos.");
+      setResult("No encontré esos equipos.");
       return;
     }
 
@@ -109,11 +152,10 @@ export default function Home() {
       equipoVisitante.team.id
     );
 
-    let probLocal = 38;
+    let probLocal = 40;
     let probEmpate = 27;
-    let probVisitante = 35;
+    let probVisitante = 33;
 
-    // Clasificación
     if (equipoLocal.position < equipoVisitante.position) {
       probLocal += 8;
       probVisitante -= 8;
@@ -122,29 +164,10 @@ export default function Home() {
       probLocal -= 8;
     }
 
-    // Ventaja local
     probLocal += 7;
-    probVisitante -= 4;
 
-    // Forma últimos 5
-    const vLocal = contar(formaLocal, "V");
-    const vVisit = contar(formaVisitante, "V");
-
-    probLocal += vLocal * 2;
-    probVisitante += vVisit * 2;
-
-    // Goles temporada
-    if (
-      equipoLocal.goalsFor > equipoVisitante.goalsFor
-    ) {
-      probLocal += 3;
-    } else {
-      probVisitante += 3;
-    }
-
-    // Normalización
-    if (probLocal < 5) probLocal = 5;
-    if (probVisitante < 5) probVisitante = 5;
+    probLocal += contar(formaLocal, "V") * 2;
+    probVisitante += contar(formaVisitante, "V") * 2;
 
     const total =
       probLocal + probEmpate + probVisitante;
@@ -160,38 +183,23 @@ export default function Home() {
       recomendacion = "Victoria local";
     else if (probVisitante >= 56)
       recomendacion = "Victoria visitante";
-    else if (
-      equipoLocal.goalsFor > 45 &&
-      equipoVisitante.goalsFor > 45
-    )
-      recomendacion = "Ambos marcan";
-    else if (
-      equipoLocal.goalsAgainst > 40 &&
-      equipoVisitante.goalsAgainst > 40
-    )
-      recomendacion = "Over 2.5 goles";
-    else
-      recomendacion = "Doble oportunidad local";
+    else recomendacion = "Ambos marcan";
 
     setResult(`
 ⚽ ${equipoLocal.team.name} vs ${equipoVisitante.team.name}
 
 🏆 Competición: ${liga}
 
-📈 Forma últimos 5:
+📈 Forma:
 ${equipoLocal.team.name}: ${formaLocal}
 ${equipoVisitante.team.name}: ${formaVisitante}
 
 📊 Probabilidades:
-🏠 Local ${probLocal}%
-🤝 Empate ${probEmpate}%
-✈️ Visitante ${probVisitante}%
+🏠 ${probLocal}%
+🤝 ${probEmpate}%
+✈️ ${probVisitante}%
 
-⚽ Goles temporada:
-${equipoLocal.team.name}: ${equipoLocal.goalsFor}
-${equipoVisitante.team.name}: ${equipoVisitante.goalsFor}
-
-🎯 Recomendación PRO:
+🎯 Recomendación:
 ${recomendacion}
     `);
 
@@ -214,13 +222,13 @@ ${recomendacion}
           </h1>
 
           <p className="text-gray-300 mt-2 text-center">
-            Motor predictivo vNEXT Estable
+            Buscador PRO inteligente
           </p>
         </div>
 
         <input
           type="text"
-          placeholder="Ej: Everton vs Liverpool"
+          placeholder="Ej: PSG vs Lyon"
           value={match}
           onChange={(e) => setMatch(e.target.value)}
           className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg mb-4"
