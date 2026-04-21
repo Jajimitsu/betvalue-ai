@@ -89,6 +89,8 @@ export default function Home() {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/fc/g, "")
       .replace(/cf/g, "")
+      .replace(/rcd/g, "")
+      .replace(/real/g, "")
       .replace(/-/g, " ")
       .replace(/\./g, "")
       .replace(/\s+/g, "")
@@ -171,10 +173,18 @@ export default function Home() {
         const home = normalizar(m.home_team);
         const away = normalizar(m.away_team);
 
-        return (
-          home.includes(normalizar(localTeam.name)) &&
-          away.includes(normalizar(visitTeam.name))
-        );
+        const local1 = normalizar(localTeam.name);
+        const visit1 = normalizar(visitTeam.name);
+
+        const homeOk =
+          home.includes(local1) ||
+          local1.includes(home);
+
+        const awayOk =
+          away.includes(visit1) ||
+          visit1.includes(away);
+
+        return homeOk && awayOk;
       });
 
       if (partido) {
@@ -193,13 +203,15 @@ export default function Home() {
         const cuotaLocal =
           h2h.find(
             (o: any) =>
-              o.name === partido.home_team
+              normalizar(o.name) ===
+              normalizar(partido.home_team)
           )?.price;
 
         const cuotaVisit =
           h2h.find(
             (o: any) =>
-              o.name === partido.away_team
+              normalizar(o.name) ===
+              normalizar(partido.away_team)
           )?.price;
 
         const cuotaDraw =
@@ -302,7 +314,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V11 Cuotas Reales
+            V12 Buscador Real
           </p>
         </div>
 
