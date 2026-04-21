@@ -58,29 +58,13 @@ export default function Home() {
       } catch {}
     }
 
-    const extras = [
-      "Real Zaragoza","Oviedo","Sporting Gijon",
-      "Levante","Elche","Almeria",
-      "Eibar","Mirandes","Racing Santander"
-    ];
-
-    extras.forEach((n, i) => {
-      lista.push({
-        id: 9000 + i,
-        name: n,
-        league: "SD",
-        position: 10,
-        goalsFor: 35,
-        goalsAgainst: 35,
-      });
-    });
-
-    const unicos = lista.filter(
-      (team, index, self) =>
-        index === self.findIndex((t) => t.name === team.name)
+    setTeams(
+      lista.filter(
+        (team, index, self) =>
+          index === self.findIndex((t) => t.name === team.name)
+      )
     );
 
-    setTeams(unicos);
     setResult("");
   }
 
@@ -116,9 +100,7 @@ export default function Home() {
     if (!q) return [];
 
     return teams
-      .filter((t) =>
-        normalizarBusqueda(t.name).includes(q)
-      )
+      .filter((t) => normalizarBusqueda(t.name).includes(q))
       .slice(0, 8);
   }, [localText, teams]);
 
@@ -127,12 +109,13 @@ export default function Home() {
     if (!q) return [];
 
     return teams
-      .filter((t) =>
-        normalizarBusqueda(t.name).includes(q)
-      )
+      .filter((t) => normalizarBusqueda(t.name).includes(q))
       .slice(0, 8);
   }, [visitText, teams]);
 
+  /********************************************************************
+   V16 MOTOR PROFESIONAL SOBRE TU BASE REAL
+  ********************************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
@@ -142,30 +125,73 @@ export default function Home() {
     setLoading(true);
     setResult("Analizando...");
 
-    let probLocal = 44;
-    let probEmpate = 25;
-    let probVisit = 31;
+    /******************************************************************
+     1. MODELO MEJORADO
+    ******************************************************************/
+    const posDiff =
+      visitTeam.position - localTeam.position;
 
-    if (localTeam.position < visitTeam.position) {
-      probLocal += 8;
-      probVisit -= 8;
-    } else if (visitTeam.position < localTeam.position) {
-      probVisit += 8;
-      probLocal -= 8;
-    }
+    const homePower =
+      localTeam.goalsFor -
+      localTeam.goalsAgainst;
 
-    probLocal += 6;
+    const awayPower =
+      visitTeam.goalsFor -
+      visitTeam.goalsAgainst;
 
-    const total = probLocal + probEmpate + probVisit;
+    let probLocal =
+      46 +
+      posDiff * 1.8 +
+      homePower * 0.15 -
+      awayPower * 0.08 +
+      7; // localía
 
-    probLocal = Math.round((probLocal / total) * 100);
-    probEmpate = Math.round((probEmpate / total) * 100);
+    probLocal = clamp(probLocal, 18, 72);
+
+    let probEmpate =
+      24 - Math.abs(posDiff) * 0.5;
+
+    probEmpate = clamp(probEmpate, 14, 30);
+
+    let probVisit =
+      100 - probLocal - probEmpate;
+
+    if (probVisit < 10) probVisit = 10;
+
+    const total =
+      probLocal + probEmpate + probVisit;
+
+    probLocal = (probLocal / total) * 100;
+    probEmpate = (probEmpate / total) * 100;
     probVisit = 100 - probLocal - probEmpate;
 
-    let principal = "⚠️ Sin cuotas";
-    let combinada = "No disponible";
-    let cuota = "-";
+    /******************************************************************
+     2. CONFIDENCE SCORE
+    ******************************************************************/
+    let confidence =
+      55 +
+      Math.abs(posDiff) * 2 +
+      Math.abs(homePower - awayPower) * 0.6;
+
+    confidence = Math.round(
+      clamp(confidence, 45, 92)
+    );
+
+    const confianzaTxt =
+      confidence >= 75
+        ? "Alta"
+        : confidence >= 60
+        ? "Media"
+        : "Baja";
+
+    let principal =
+      "⚠️ Sin cuotas";
+    let combinada =
+      "No disponible";
+    let cuota: any = "-";
     let riesgo = "Bajo";
+    let evTxt = "-";
+    let stake = "-";
 
     try {
       const resOdds = await fetch("/api/odds");
@@ -179,22 +205,20 @@ export default function Home() {
         const visit = normalizarCuotas(visitTeam.name);
 
         return (
-          (home.includes(local) || local.includes(home)) &&
-          (away.includes(visit) || visit.includes(away))
+          (home.includes(local) ||
+            local.includes(home)) &&
+          (away.includes(visit) ||
+            visit.includes(away))
         );
       });
 
       if (partido) {
-        const book = partido.bookmakers?.[0];
+        const book =
+          partido.bookmakers?.[0];
 
         const h2h =
           book?.markets?.find(
             (m: any) => m.key === "h2h"
-          )?.outcomes || [];
-
-        const totals =
-          book?.markets?.find(
-            (m: any) => m.key === "totals"
           )?.outcomes || [];
 
         const cuotaLocal =
@@ -215,109 +239,133 @@ export default function Home() {
               o.name === "Draw"
           )?.price;
 
-        const cuotaOver =
-          totals.find(
-            (o: any) =>
-              o.name === "Over"
-          )?.price;
-
-        const valorLocal =
+        /**************************************************************
+         V16 EV REAL
+        **************************************************************/
+        const evLocal =
           cuotaLocal
-            ? probLocal / 100 -
-              1 / cuotaLocal
-            : -1;
+            ? (probLocal / 100) *
+                cuotaLocal -
+              1
+            : -99;
 
-        const valorVisit =
+        const evVisit =
           cuotaVisit
-            ? probVisit / 100 -
-              1 / cuotaVisit
-            : -1;
+            ? (probVisit / 100) *
+                cuotaVisit -
+              1
+            : -99;
 
-        const valorDraw =
+        const evDraw =
           cuotaDraw
-            ? probEmpate / 100 -
-              1 / cuotaDraw
-            : -1;
+            ? (probEmpate / 100) *
+                cuotaDraw -
+              1
+            : -99;
 
+        const picks = [];
+
+        // LOCAL
         if (
-          valorLocal >= 0.03 &&
-          cuotaLocal
+          cuotaLocal >= 1.55 &&
+          cuotaLocal <= 4.5 &&
+          probLocal >= 38 &&
+          evLocal >= 0.04
         ) {
-          principal = "🏠 Value local";
-          combinada =
-            `${localTeam.name} gana`;
-          cuota = cuotaLocal;
-          riesgo = "Bajo-Medio";
-
-          if (
-            cuotaOver &&
-            cuotaLocal < 1.45
-          ) {
-            principal =
-              "🧠 Mejor combinada local";
-
-            combinada =
-              `${localTeam.name} gana + Over goles`;
-
-            cuota = (
-              cuotaLocal *
-              cuotaOver
-            ).toFixed(2);
-          }
+          picks.push({
+            tipo: "🏠 Value local",
+            pick:
+              localTeam.name + " gana",
+            cuota: cuotaLocal,
+            ev: evLocal,
+            riesgo: "Bajo-Medio",
+          });
         }
 
-        else if (
-          valorVisit >= 0.03 &&
-          cuotaVisit
+        // VISITANTE
+        if (
+          cuotaVisit >= 1.8 &&
+          cuotaVisit <= 5 &&
+          probVisit >= 28 &&
+          evVisit >= 0.05
         ) {
-          principal =
-            "✈️ Value visitante";
-
-          combinada =
-            `${visitTeam.name} gana`;
-
-          cuota = cuotaVisit;
-          riesgo = "Medio";
-
-          if (cuotaOver) {
-            principal =
-              "🧠 Mejor combinada visitante";
-
-            combinada =
-              `${visitTeam.name} gana + Over goles`;
-
-            cuota = (
-              cuotaVisit *
-              cuotaOver
-            ).toFixed(2);
-          }
+          picks.push({
+            tipo:
+              "✈️ Value visitante",
+            pick:
+              visitTeam.name + " gana",
+            cuota: cuotaVisit,
+            ev: evVisit,
+            riesgo: "Medio",
+          });
         }
 
-        else if (
-          valorDraw >= 0.04 &&
-          cuotaDraw
+        // EMPATE
+        if (
+          cuotaDraw >= 2.8 &&
+          cuotaDraw <= 5 &&
+          probEmpate >= 22 &&
+          evDraw >= 0.06
         ) {
-          principal =
-            "🤝 Value empate";
-
-          combinada = "Empate";
-          cuota = cuotaDraw;
-          riesgo = "Alto";
+          picks.push({
+            tipo: "🤝 Value empate",
+            pick: "Empate",
+            cuota: cuotaDraw,
+            ev: evDraw,
+            riesgo: "Alto",
+          });
         }
 
-        else {
+        /**************************************************************
+         SI NO HAY VALUE
+        **************************************************************/
+        if (picks.length === 0) {
           principal =
-            "⚠️ Sin value real";
+            "🚫 No apostar prepartido";
 
           combinada =
-            "No apostar prepartido";
+            "No hay valor real";
 
           cuota = "-";
           riesgo = "Bajo";
+        } else {
+          picks.sort(
+            (a, b) => b.ev - a.ev
+          );
+
+          const mejor = picks[0];
+
+          principal = mejor.tipo;
+          combinada = mejor.pick;
+          cuota = mejor.cuota;
+          riesgo = mejor.riesgo;
+          evTxt =
+            "+" +
+            (
+              mejor.ev * 100
+            ).toFixed(1) +
+            "%";
+
+          /************************************************************
+           STAKE
+          ************************************************************/
+          if (
+            mejor.ev >= 0.12 &&
+            confidence >= 75
+          ) {
+            stake = "3/5";
+          } else if (
+            mejor.ev >= 0.08
+          ) {
+            stake = "2/5";
+          } else {
+            stake = "1/5";
+          }
         }
       }
     } catch {
-      principal = "⚠️ Error cuotas";
+      principal =
+        "⚠️ Error cuotas";
     }
 
     setResult(`
@@ -325,10 +373,10 @@ export default function Home() {
 
 🏆 Liga: ${localTeam.league}
 
-📊 Probabilidades modelo:
-🏠 ${probLocal}%
-🤝 ${probEmpate}%
-✈️ ${probVisit}%
+📊 Probabilidades IA:
+🏠 ${probLocal.toFixed(1)}%
+🤝 ${probEmpate.toFixed(1)}%
+✈️ ${probVisit.toFixed(1)}%
 
 🎯 Pick principal:
 ${principal}
@@ -339,11 +387,31 @@ ${combinada}
 💰 Cuota:
 ${cuota}
 
+📈 EV:
+${evTxt}
+
+🔥 Stake:
+${stake}
+
+🧠 Confianza:
+${confianzaTxt} (${confidence}/100)
+
 ⚠️ Riesgo:
 ${riesgo}
     `);
 
     setLoading(false);
+  }
+
+  function clamp(
+    value: number,
+    min: number,
+    max: number
+  ) {
+    return Math.max(
+      min,
+      Math.min(max, value)
+    );
   }
 
   return (
@@ -362,7 +430,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V14 Value Real
+            V16 Professional Engine
           </p>
         </div>
 
@@ -378,23 +446,24 @@ ${riesgo}
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
           />
 
-          {showLocal && localSug.length > 0 && (
-            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
-              {localSug.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => {
-                    setLocalTeam(t);
-                    setLocalText(t.name);
-                    setShowLocal(false);
-                  }}
-                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
-                >
-                  {t.name}
-                </div>
-              ))}
-            </div>
-          )}
+          {showLocal &&
+            localSug.length > 0 && (
+              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
+                {localSug.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      setLocalTeam(t);
+                      setLocalText(t.name);
+                      setShowLocal(false);
+                    }}
+                    className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                  >
+                    {t.name}
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
 
         <div className="relative mb-4">
@@ -409,23 +478,24 @@ ${riesgo}
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
           />
 
-          {showVisit && visitSug.length > 0 && (
-            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
-              {visitSug.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => {
-                    setVisitTeam(t);
-                    setVisitText(t.name);
-                    setShowVisit(false);
-                  }}
-                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
-                >
-                  {t.name}
-                </div>
-              ))}
-            </div>
-          )}
+          {showVisit &&
+            visitSug.length > 0 && (
+              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
+                {visitSug.map((t) => (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      setVisitTeam(t);
+                      setVisitText(t.name);
+                      setShowVisit(false);
+                    }}
+                    className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                  >
+                    {t.name}
+                  </div>
+                ))}
+              </div>
+            )}
         </div>
 
         <button
@@ -433,7 +503,9 @@ ${riesgo}
           disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
-          {loading ? "Analizando..." : "Analizar Partido"}
+          {loading
+            ? "Analizando..."
+            : "Analizar Partido"}
         </button>
 
         {result && (
