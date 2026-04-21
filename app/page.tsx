@@ -58,7 +58,6 @@ export default function Home() {
       } catch {}
     }
 
-    // Segunda manual extra
     [
       "Zaragoza","Oviedo","Sporting Gijon",
       "Levante","Elche","Almeria",
@@ -114,17 +113,6 @@ export default function Home() {
       .slice(0, 8);
   }, [visitText, teams]);
 
-  function formaFake() {
-    const arr = [
-      "V V E D V",
-      "V E V E D",
-      "D V V E V",
-      "E E V D V",
-    ];
-
-    return arr[Math.floor(Math.random() * arr.length)];
-  }
-
   async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
@@ -134,16 +122,11 @@ export default function Home() {
     setLoading(true);
     setResult("Analizando...");
 
-    const formaLocal = formaFake();
-    const formaVisit = formaFake();
-
     let probLocal = 40;
     let probEmpate = 28;
     let probVisit = 32;
 
-    const diffPos =
-      visitTeam.position -
-      localTeam.position;
+    const diffPos = visitTeam.position - localTeam.position;
 
     if (diffPos >= 5) {
       probLocal += 10;
@@ -159,130 +142,128 @@ export default function Home() {
       probLocal -= 6;
     }
 
-    probLocal += 6; // localía
+    probLocal += 6;
 
     if (localTeam.goalsFor > visitTeam.goalsFor)
       probLocal += 4;
     else probVisit += 4;
 
-    if (
-      localTeam.goalsAgainst <
-      visitTeam.goalsAgainst
-    )
+    if (localTeam.goalsAgainst < visitTeam.goalsAgainst)
       probLocal += 4;
     else probVisit += 4;
 
-    const total =
-      probLocal + probEmpate + probVisit;
+    const total = probLocal + probEmpate + probVisit;
 
     probLocal = Math.round((probLocal / total) * 100);
     probEmpate = Math.round((probEmpate / total) * 100);
     probVisit = 100 - probLocal - probEmpate;
 
-    const golesTotales =
-      localTeam.goalsFor +
-      visitTeam.goalsFor;
-
-    const defensasMalas =
-      localTeam.goalsAgainst > 35 &&
-      visitTeam.goalsAgainst > 35;
-
     let principal = "";
     let combinada = "";
-    let riesgo = "";
-    let cuota = "";
+    let cuota = "-";
+    let riesgo = "Medio";
 
-    // FAVORITO LOCAL FUERTE
-    if (probLocal >= 60) {
-      principal = "🏠 Victoria local";
+    try {
+      const resOdds = await fetch("/api/odds");
+      const oddsData = await resOdds.json();
 
-      if (golesTotales > 80) {
-        combinada =
-          `${localTeam.name} gana + Over 1.5 goles`;
-        cuota = "1.90";
+      const partido = oddsData.find((m: any) => {
+        const home = normalizar(m.home_team);
+        const away = normalizar(m.away_team);
+
+        return (
+          home.includes(normalizar(localTeam.name)) &&
+          away.includes(normalizar(visitTeam.name))
+        );
+      });
+
+      if (partido) {
+        const book = partido.bookmakers?.[0];
+
+        const h2h =
+          book?.markets?.find(
+            (m: any) => m.key === "h2h"
+          )?.outcomes || [];
+
+        const totals =
+          book?.markets?.find(
+            (m: any) => m.key === "totals"
+          )?.outcomes || [];
+
+        const cuotaLocal =
+          h2h.find(
+            (o: any) =>
+              o.name === partido.home_team
+          )?.price;
+
+        const cuotaVisit =
+          h2h.find(
+            (o: any) =>
+              o.name === partido.away_team
+          )?.price;
+
+        const cuotaDraw =
+          h2h.find(
+            (o: any) =>
+              o.name === "Draw"
+          )?.price;
+
+        const cuotaOver =
+          totals.find(
+            (o: any) =>
+              o.name === "Over"
+          )?.price;
+
+        if (probLocal >= 58 && cuotaLocal) {
+          principal = "🏠 Victoria local";
+          combinada = `${localTeam.name} gana`;
+          cuota = cuotaLocal;
+          riesgo = "Bajo-Medio";
+
+          if (cuotaOver) {
+            combinada =
+              `${localTeam.name} gana + Over goles`;
+
+            cuota = (
+              cuotaLocal * cuotaOver
+            ).toFixed(2);
+          }
+        } else if (probVisit >= 58 && cuotaVisit) {
+          principal = "✈️ Victoria visitante";
+          combinada = `${visitTeam.name} gana`;
+          cuota = cuotaVisit;
+          riesgo = "Medio";
+
+          if (cuotaOver) {
+            combinada =
+              `${visitTeam.name} gana + Over goles`;
+
+            cuota = (
+              cuotaVisit * cuotaOver
+            ).toFixed(2);
+          }
+        } else if (cuotaDraw) {
+          principal = "🤝 Partido igualado";
+          combinada = "Empate";
+          cuota = cuotaDraw;
+          riesgo = "Alto";
+        } else {
+          principal = "⚠️ Sin mercado claro";
+          combinada = "No recomendar";
+        }
       } else {
-        combinada =
-          `${localTeam.name} gana + Under 4.5 goles`;
-        cuota = "1.82";
+        principal = "⚠️ Sin cuotas disponibles";
+        combinada = "Partido no encontrado";
       }
-
-      riesgo = "Bajo-Medio";
-    }
-
-    // FAVORITO VISITANTE
-    else if (probVisit >= 60) {
-      principal = "✈️ Victoria visitante";
-
-      if (golesTotales > 80) {
-        combinada =
-          `${visitTeam.name} gana + Over 1.5 goles`;
-        cuota = "2.10";
-      } else {
-        combinada =
-          `${visitTeam.name} gana + Under 4.5 goles`;
-        cuota = "2.00";
-      }
-
-      riesgo = "Medio";
-    }
-
-    // PARTIDO OFENSIVO
-    else if (
-      golesTotales > 95 ||
-      defensasMalas
-    ) {
-      principal = "⚽ Partido de goles";
-      combinada =
-        "Ambos marcan + Over 2.5 goles";
-      cuota = "2.15";
-      riesgo = "Medio";
-    }
-
-    // PARTIDO IGUALADO
-    else if (
-      Math.abs(probLocal - probVisit) <= 8
-    ) {
-      principal = "🤝 Partido igualado";
-
-      if (probLocal >= probVisit) {
-        combinada =
-          "1X + Under 4.5 goles";
-      } else {
-        combinada =
-          "X2 + Under 4.5 goles";
-      }
-
-      cuota = "1.75";
-      riesgo = "Bajo";
-    }
-
-    // FAVORITO SUAVE
-    else {
-      if (probLocal > probVisit) {
-        principal =
-          "🏠 Favorito ligero local";
-        combinada =
-          "Empate no apuesta local + Over 1.5";
-        cuota = "1.88";
-      } else {
-        principal =
-          "✈️ Favorito ligero visitante";
-        combinada =
-          "Empate no apuesta visitante + Over 1.5";
-        cuota = "2.05";
-      }
-
-      riesgo = "Bajo-Medio";
+    } catch {
+      principal = "⚠️ Error cuotas";
+      combinada = "Revisa API";
     }
 
     setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
 🏆 Liga: ${localTeam.league}
-
-📈 Forma:
-${localTeam.name}: ${formaLocal}
-${visitTeam.name}: ${formaVisit}
 
 📊 Probabilidades:
 🏠 ${probLocal}%
@@ -295,7 +276,7 @@ ${principal}
 🧠 Combinada IA:
 ${combinada}
 
-💰 Cuota estimada:
+💰 Cuota real:
 ${cuota}
 
 ⚠️ Riesgo:
@@ -321,7 +302,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V10 Combinadas PRO
+            V11 Cuotas Reales
           </p>
         </div>
 
@@ -392,9 +373,7 @@ ${riesgo}
           disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
-          {loading
-            ? "Analizando..."
-            : "Analizar Partido"}
+          {loading ? "Analizando..." : "Analizar Partido"}
         </button>
 
         {result && (
