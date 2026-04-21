@@ -59,9 +59,18 @@ export default function Home() {
     }
 
     [
-      "Zaragoza","Oviedo","Sporting Gijon",
-      "Levante","Elche","Almeria",
-      "Eibar","Mirandes","Racing Santander"
+      "Real Madrid",
+      "Real Sociedad",
+      "Real Zaragoza",
+      "RCD Mallorca",
+      "Almeria",
+      "Mirandes",
+      "Oviedo",
+      "Sporting Gijon",
+      "Levante",
+      "Elche",
+      "Eibar",
+      "Racing Santander"
     ].forEach((n, i) => {
       lista.push({
         id: 9000 + i,
@@ -82,7 +91,18 @@ export default function Home() {
     setResult("");
   }
 
-  function normalizar(texto: string) {
+  function normalizarBusqueda(texto: string) {
+    return texto
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/-/g, " ")
+      .replace(/\./g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function normalizarCuotas(texto: string) {
     return texto
       .toLowerCase()
       .normalize("NFD")
@@ -91,6 +111,7 @@ export default function Home() {
       .replace(/cf/g, "")
       .replace(/rcd/g, "")
       .replace(/real/g, "")
+      .replace(/club/g, "")
       .replace(/-/g, " ")
       .replace(/\./g, "")
       .replace(/\s+/g, "")
@@ -98,20 +119,26 @@ export default function Home() {
   }
 
   const localSug = useMemo(() => {
-    if (localText.length < 2) return [];
-    const q = normalizar(localText);
+    if (localText.length < 1) return [];
+
+    const q = normalizarBusqueda(localText);
 
     return teams
-      .filter((t) => normalizar(t.name).includes(q))
+      .filter((t) =>
+        normalizarBusqueda(t.name).includes(q)
+      )
       .slice(0, 8);
   }, [localText, teams]);
 
   const visitSug = useMemo(() => {
-    if (visitText.length < 2) return [];
-    const q = normalizar(visitText);
+    if (visitText.length < 1) return [];
+
+    const q = normalizarBusqueda(visitText);
 
     return teams
-      .filter((t) => normalizar(t.name).includes(q))
+      .filter((t) =>
+        normalizarBusqueda(t.name).includes(q)
+      )
       .slice(0, 8);
   }, [visitText, teams]);
 
@@ -124,35 +151,19 @@ export default function Home() {
     setLoading(true);
     setResult("Analizando...");
 
-    let probLocal = 40;
-    let probEmpate = 28;
-    let probVisit = 32;
+    let probLocal = 44;
+    let probEmpate = 27;
+    let probVisit = 29;
 
-    const diffPos = visitTeam.position - localTeam.position;
-
-    if (diffPos >= 5) {
-      probLocal += 10;
-      probVisit -= 10;
-    } else if (diffPos >= 2) {
-      probLocal += 6;
-      probVisit -= 6;
-    } else if (diffPos <= -5) {
-      probVisit += 10;
-      probLocal -= 10;
-    } else if (diffPos <= -2) {
-      probVisit += 6;
-      probLocal -= 6;
+    if (localTeam.position < visitTeam.position) {
+      probLocal += 8;
+      probVisit -= 8;
+    } else if (visitTeam.position < localTeam.position) {
+      probVisit += 8;
+      probLocal -= 8;
     }
 
     probLocal += 6;
-
-    if (localTeam.goalsFor > visitTeam.goalsFor)
-      probLocal += 4;
-    else probVisit += 4;
-
-    if (localTeam.goalsAgainst < visitTeam.goalsAgainst)
-      probLocal += 4;
-    else probVisit += 4;
 
     const total = probLocal + probEmpate + probVisit;
 
@@ -160,8 +171,8 @@ export default function Home() {
     probEmpate = Math.round((probEmpate / total) * 100);
     probVisit = 100 - probLocal - probEmpate;
 
-    let principal = "";
-    let combinada = "";
+    let principal = "⚠️ Sin cuotas disponibles";
+    let combinada = "Partido no encontrado";
     let cuota = "-";
     let riesgo = "Medio";
 
@@ -170,24 +181,24 @@ export default function Home() {
       const oddsData = await resOdds.json();
 
       const partido = oddsData.find((m: any) => {
-        const home = normalizar(m.home_team);
-        const away = normalizar(m.away_team);
+        const home = normalizarCuotas(m.home_team);
+        const away = normalizarCuotas(m.away_team);
 
-        const local1 = normalizar(localTeam.name);
-        const visit1 = normalizar(visitTeam.name);
+        const local = normalizarCuotas(localTeam.name);
+        const visit = normalizarCuotas(visitTeam.name);
 
         const homeOk =
-          home.includes(local1) ||
-          local1.includes(home);
+          home.includes(local) || local.includes(home);
 
         const awayOk =
-          away.includes(visit1) ||
-          visit1.includes(away);
+          away.includes(visit) || visit.includes(away);
 
         return homeOk && awayOk;
       });
 
       if (partido) {
+        principal = "✅ Partido encontrado";
+
         const book = partido.bookmakers?.[0];
 
         const h2h =
@@ -195,81 +206,40 @@ export default function Home() {
             (m: any) => m.key === "h2h"
           )?.outcomes || [];
 
-        const totals =
-          book?.markets?.find(
-            (m: any) => m.key === "totals"
-          )?.outcomes || [];
+        const cuotaLocal = h2h.find(
+          (o: any) =>
+            o.name === partido.home_team
+        )?.price;
 
-        const cuotaLocal =
-          h2h.find(
-            (o: any) =>
-              normalizar(o.name) ===
-              normalizar(partido.home_team)
-          )?.price;
+        const cuotaVisit = h2h.find(
+          (o: any) =>
+            o.name === partido.away_team
+        )?.price;
 
-        const cuotaVisit =
-          h2h.find(
-            (o: any) =>
-              normalizar(o.name) ===
-              normalizar(partido.away_team)
-          )?.price;
+        const cuotaDraw = h2h.find(
+          (o: any) =>
+            o.name === "Draw"
+        )?.price;
 
-        const cuotaDraw =
-          h2h.find(
-            (o: any) =>
-              o.name === "Draw"
-          )?.price;
-
-        const cuotaOver =
-          totals.find(
-            (o: any) =>
-              o.name === "Over"
-          )?.price;
-
-        if (probLocal >= 58 && cuotaLocal) {
+        if (probLocal >= probVisit && cuotaLocal) {
           principal = "🏠 Victoria local";
           combinada = `${localTeam.name} gana`;
           cuota = cuotaLocal;
           riesgo = "Bajo-Medio";
-
-          if (cuotaOver) {
-            combinada =
-              `${localTeam.name} gana + Over goles`;
-
-            cuota = (
-              cuotaLocal * cuotaOver
-            ).toFixed(2);
-          }
-        } else if (probVisit >= 58 && cuotaVisit) {
+        } else if (cuotaVisit) {
           principal = "✈️ Victoria visitante";
           combinada = `${visitTeam.name} gana`;
           cuota = cuotaVisit;
           riesgo = "Medio";
-
-          if (cuotaOver) {
-            combinada =
-              `${visitTeam.name} gana + Over goles`;
-
-            cuota = (
-              cuotaVisit * cuotaOver
-            ).toFixed(2);
-          }
         } else if (cuotaDraw) {
-          principal = "🤝 Partido igualado";
+          principal = "🤝 Empate";
           combinada = "Empate";
           cuota = cuotaDraw;
           riesgo = "Alto";
-        } else {
-          principal = "⚠️ Sin mercado claro";
-          combinada = "No recomendar";
         }
-      } else {
-        principal = "⚠️ Sin cuotas disponibles";
-        combinada = "Partido no encontrado";
       }
     } catch {
-      principal = "⚠️ Error cuotas";
-      combinada = "Revisa API";
+      principal = "⚠️ Error API cuotas";
     }
 
     setResult(`
@@ -314,7 +284,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V12 Buscador Real
+            V13 Autocomplete PRO
           </p>
         </div>
 
