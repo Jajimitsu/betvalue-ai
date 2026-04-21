@@ -58,14 +58,12 @@ export default function Home() {
       } catch {}
     }
 
-    // Segunda España manual extra
-    const segundaManual = [
+    // Segunda manual extra
+    [
       "Zaragoza","Oviedo","Sporting Gijon",
       "Levante","Elche","Almeria",
       "Eibar","Mirandes","Racing Santander"
-    ];
-
-    segundaManual.forEach((n, i) => {
+    ].forEach((n, i) => {
       lista.push({
         id: 9000 + i,
         name: n,
@@ -116,9 +114,15 @@ export default function Home() {
       .slice(0, 8);
   }, [visitText, teams]);
 
-  function generarFormaFake() {
-    const opciones = ["V V E D V", "V E V E D", "D V V E V"];
-    return opciones[Math.floor(Math.random() * opciones.length)];
+  function formaFake() {
+    const arr = [
+      "V V E D V",
+      "V E V E D",
+      "D V V E V",
+      "E E V D V",
+    ];
+
+    return arr[Math.floor(Math.random() * arr.length)];
   }
 
   async function analizar() {
@@ -130,70 +134,145 @@ export default function Home() {
     setLoading(true);
     setResult("Analizando...");
 
-    const formaLocal = generarFormaFake();
-    const formaVisit = generarFormaFake();
+    const formaLocal = formaFake();
+    const formaVisit = formaFake();
 
     let probLocal = 40;
     let probEmpate = 28;
     let probVisit = 32;
 
-    if (localTeam.position < visitTeam.position) {
+    const diffPos =
+      visitTeam.position -
+      localTeam.position;
+
+    if (diffPos >= 5) {
+      probLocal += 10;
+      probVisit -= 10;
+    } else if (diffPos >= 2) {
       probLocal += 6;
       probVisit -= 6;
-    } else {
+    } else if (diffPos <= -5) {
+      probVisit += 10;
+      probLocal -= 10;
+    } else if (diffPos <= -2) {
       probVisit += 6;
       probLocal -= 6;
     }
 
-    probLocal += 6;
+    probLocal += 6; // localía
 
     if (localTeam.goalsFor > visitTeam.goalsFor)
       probLocal += 4;
     else probVisit += 4;
 
-    if (localTeam.goalsAgainst < visitTeam.goalsAgainst)
+    if (
+      localTeam.goalsAgainst <
+      visitTeam.goalsAgainst
+    )
       probLocal += 4;
     else probVisit += 4;
 
-    const total = probLocal + probEmpate + probVisit;
+    const total =
+      probLocal + probEmpate + probVisit;
 
     probLocal = Math.round((probLocal / total) * 100);
     probEmpate = Math.round((probEmpate / total) * 100);
     probVisit = 100 - probLocal - probEmpate;
 
-    let principal = "⚠️ Partido complicado";
-    let secundaria = "1X";
-    let combinada = "Sin combinada clara";
-    let cuota = "1.70";
-    let riesgo = "Medio";
+    const golesTotales =
+      localTeam.goalsFor +
+      visitTeam.goalsFor;
 
-    if (probLocal >= 58) {
+    const defensasMalas =
+      localTeam.goalsAgainst > 35 &&
+      visitTeam.goalsAgainst > 35;
+
+    let principal = "";
+    let combinada = "";
+    let riesgo = "";
+    let cuota = "";
+
+    // FAVORITO LOCAL FUERTE
+    if (probLocal >= 60) {
       principal = "🏠 Victoria local";
-      secundaria = "Over 1.5 goles";
-      combinada = `${localTeam.name} gana + Over 1.5 goles`;
-      cuota = "1.85";
+
+      if (golesTotales > 80) {
+        combinada =
+          `${localTeam.name} gana + Over 1.5 goles`;
+        cuota = "1.90";
+      } else {
+        combinada =
+          `${localTeam.name} gana + Under 4.5 goles`;
+        cuota = "1.82";
+      }
+
       riesgo = "Bajo-Medio";
-    } else if (probVisit >= 58) {
+    }
+
+    // FAVORITO VISITANTE
+    else if (probVisit >= 60) {
       principal = "✈️ Victoria visitante";
-      secundaria = "Over 1.5 goles";
-      combinada = `${visitTeam.name} gana + Over 1.5 goles`;
-      cuota = "2.05";
+
+      if (golesTotales > 80) {
+        combinada =
+          `${visitTeam.name} gana + Over 1.5 goles`;
+        cuota = "2.10";
+      } else {
+        combinada =
+          `${visitTeam.name} gana + Under 4.5 goles`;
+        cuota = "2.00";
+      }
+
       riesgo = "Medio";
-    } else if (
-      localTeam.goalsFor > 40 &&
-      visitTeam.goalsFor > 40
+    }
+
+    // PARTIDO OFENSIVO
+    else if (
+      golesTotales > 95 ||
+      defensasMalas
     ) {
-      principal = "⚽ Ambos marcan";
-      secundaria = "Over 2.5 goles";
-      combinada = `Ambos marcan + Over 2.5 goles`;
-      cuota = "2.10";
+      principal = "⚽ Partido de goles";
+      combinada =
+        "Ambos marcan + Over 2.5 goles";
+      cuota = "2.15";
       riesgo = "Medio";
-    } else {
-      principal = "🛡️ Doble oportunidad local";
-      secundaria = "Under 4.5 goles";
-      combinada = `1X + Under 4.5 goles`;
-      cuota = "1.72";
+    }
+
+    // PARTIDO IGUALADO
+    else if (
+      Math.abs(probLocal - probVisit) <= 8
+    ) {
+      principal = "🤝 Partido igualado";
+
+      if (probLocal >= probVisit) {
+        combinada =
+          "1X + Under 4.5 goles";
+      } else {
+        combinada =
+          "X2 + Under 4.5 goles";
+      }
+
+      cuota = "1.75";
       riesgo = "Bajo";
+    }
+
+    // FAVORITO SUAVE
+    else {
+      if (probLocal > probVisit) {
+        principal =
+          "🏠 Favorito ligero local";
+        combinada =
+          "Empate no apuesta local + Over 1.5";
+        cuota = "1.88";
+      } else {
+        principal =
+          "✈️ Favorito ligero visitante";
+        combinada =
+          "Empate no apuesta visitante + Over 1.5";
+        cuota = "2.05";
+      }
+
+      riesgo = "Bajo-Medio";
     }
 
     setResult(`
@@ -212,9 +291,6 @@ ${visitTeam.name}: ${formaVisit}
 
 🎯 Pick principal:
 ${principal}
-
-📌 Pick secundario:
-${secundaria}
 
 🧠 Combinada IA:
 ${combinada}
@@ -245,7 +321,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V8 PREMIUM TOTAL
+            V10 Combinadas PRO
           </p>
         </div>
 
@@ -316,7 +392,9 @@ ${riesgo}
           disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
-          {loading ? "Analizando..." : "Analizar Partido"}
+          {loading
+            ? "Analizando..."
+            : "Analizar Partido"}
         </button>
 
         {result && (
