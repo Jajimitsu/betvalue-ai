@@ -29,11 +29,14 @@ export default function Home() {
     cargarEquipos();
   }, []);
 
+  /************************************************************
+   CARGAR EQUIPOS
+  ************************************************************/
   async function cargarEquipos() {
     const ligas = [
-      "PD","SD","PL","SA","BL1","FL1",
-      "CL","EL","ECL","PPL","DED",
-      "ELC","TSL","BSA","ARG"
+      "PD", "SD", "PL", "SA", "BL1", "FL1",
+      "CL", "EL", "ECL", "PPL", "DED",
+      "ELC", "TSL", "BSA", "ARG"
     ];
 
     let lista: TeamItem[] = [];
@@ -58,14 +61,20 @@ export default function Home() {
       } catch {}
     }
 
-    setTeams(
-      lista.filter(
-        (team, index, self) =>
-          index === self.findIndex((t) => t.name === team.name)
-      )
+    const unicos = lista.filter(
+      (team, index, self) =>
+        index === self.findIndex((t) => t.name === team.name)
     );
 
+    setTeams(unicos);
     setResult("");
+  }
+
+  /************************************************************
+   HELPERS
+  ************************************************************/
+  function clamp(value: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, value));
   }
 
   function normalizarBusqueda(texto: string) {
@@ -95,12 +104,17 @@ export default function Home() {
       .trim();
   }
 
+  /************************************************************
+   AUTOCOMPLETE
+  ************************************************************/
   const localSug = useMemo(() => {
     const q = normalizarBusqueda(localText);
     if (!q) return [];
 
     return teams
-      .filter((t) => normalizarBusqueda(t.name).includes(q))
+      .filter((t) =>
+        normalizarBusqueda(t.name).includes(q)
+      )
       .slice(0, 8);
   }, [localText, teams]);
 
@@ -109,13 +123,15 @@ export default function Home() {
     if (!q) return [];
 
     return teams
-      .filter((t) => normalizarBusqueda(t.name).includes(q))
+      .filter((t) =>
+        normalizarBusqueda(t.name).includes(q)
+      )
       .slice(0, 8);
   }, [visitText, teams]);
 
-  /********************************************************************
-   V16 MOTOR PROFESIONAL SOBRE TU BASE REAL
-  ********************************************************************/
+  /************************************************************
+   🔥 V16.1 MOTOR PROFESIONAL COMPLETO
+  ************************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
@@ -125,9 +141,6 @@ export default function Home() {
     setLoading(true);
     setResult("Analizando...");
 
-    /******************************************************************
-     1. MODELO MEJORADO
-    ******************************************************************/
     const posDiff =
       visitTeam.position - localTeam.position;
 
@@ -139,12 +152,15 @@ export default function Home() {
       visitTeam.goalsFor -
       visitTeam.goalsAgainst;
 
+    /**********************************************************
+     MODELO BASE
+    **********************************************************/
     let probLocal =
       46 +
       posDiff * 1.8 +
       homePower * 0.15 -
       awayPower * 0.08 +
-      7; // localía
+      7;
 
     probLocal = clamp(probLocal, 18, 72);
 
@@ -158,16 +174,16 @@ export default function Home() {
 
     if (probVisit < 10) probVisit = 10;
 
-    const total =
+    let total =
       probLocal + probEmpate + probVisit;
 
     probLocal = (probLocal / total) * 100;
     probEmpate = (probEmpate / total) * 100;
     probVisit = 100 - probLocal - probEmpate;
 
-    /******************************************************************
-     2. CONFIDENCE SCORE
-    ******************************************************************/
+    /**********************************************************
+     CONFIDENCE SCORE
+    **********************************************************/
     let confidence =
       55 +
       Math.abs(posDiff) * 2 +
@@ -184,15 +200,16 @@ export default function Home() {
         ? "Media"
         : "Baja";
 
-    let principal =
-      "⚠️ Sin cuotas";
-    let combinada =
-      "No disponible";
+    let principal = "⚠️ Sin cuotas";
+    let combinada = "No disponible";
     let cuota: any = "-";
     let riesgo = "Bajo";
     let evTxt = "-";
     let stake = "-";
 
+    /**********************************************************
+     BUSCAR CUOTAS
+    **********************************************************/
     try {
       const resOdds = await fetch("/api/odds");
       const oddsData = await resOdds.json();
@@ -239,9 +256,47 @@ export default function Home() {
               o.name === "Draw"
           )?.price;
 
-        /**************************************************************
-         V16 EV REAL
-        **************************************************************/
+        /******************************************************
+         🔥 ANTI UPSET FILTER
+        ******************************************************/
+        if (cuotaVisit && cuotaVisit > 4.0) {
+          probVisit *= 0.88;
+          probLocal *= 1.06;
+        }
+
+        if (
+          cuotaVisit &&
+          cuotaVisit > 4.4 &&
+          localTeam.position <= 6
+        ) {
+          probVisit *= 0.80;
+        }
+
+        if (
+          cuotaVisit &&
+          cuotaVisit > 4.8 &&
+          posDiff >= 6
+        ) {
+          probVisit *= 0.75;
+        }
+
+        total =
+          probLocal +
+          probEmpate +
+          probVisit;
+
+        probLocal =
+          (probLocal / total) * 100;
+
+        probEmpate =
+          (probEmpate / total) * 100;
+
+        probVisit =
+          100 - probLocal - probEmpate;
+
+        /******************************************************
+         EV REAL
+        ******************************************************/
         const evLocal =
           cuotaLocal
             ? (probLocal / 100) *
@@ -265,7 +320,9 @@ export default function Home() {
 
         const picks = [];
 
-        // LOCAL
+        /******************************************************
+         LOCAL
+        ******************************************************/
         if (
           cuotaLocal >= 1.55 &&
           cuotaLocal <= 4.5 &&
@@ -282,12 +339,15 @@ export default function Home() {
           });
         }
 
-        // VISITANTE
+        /******************************************************
+         VISITANTE (MUCHO MÁS DURO)
+        ******************************************************/
         if (
           cuotaVisit >= 1.8 &&
-          cuotaVisit <= 5 &&
-          probVisit >= 28 &&
-          evVisit >= 0.05
+          cuotaVisit <= 4.6 &&
+          probVisit >= 30 &&
+          evVisit >= 0.07 &&
+          localTeam.position > 6
         ) {
           picks.push({
             tipo:
@@ -300,7 +360,9 @@ export default function Home() {
           });
         }
 
-        // EMPATE
+        /******************************************************
+         EMPATE
+        ******************************************************/
         if (
           cuotaDraw >= 2.8 &&
           cuotaDraw <= 5 &&
@@ -316,16 +378,14 @@ export default function Home() {
           });
         }
 
-        /**************************************************************
-         SI NO HAY VALUE
-        **************************************************************/
+        /******************************************************
+         RESULTADO FINAL
+        ******************************************************/
         if (picks.length === 0) {
           principal =
             "🚫 No apostar prepartido";
-
           combinada =
-            "No hay valor real";
-
+            "No hay value real";
           cuota = "-";
           riesgo = "Bajo";
         } else {
@@ -339,6 +399,7 @@ export default function Home() {
           combinada = mejor.pick;
           cuota = mejor.cuota;
           riesgo = mejor.riesgo;
+
           evTxt =
             "+" +
             (
@@ -346,16 +407,13 @@ export default function Home() {
             ).toFixed(1) +
             "%";
 
-          /************************************************************
-           STAKE
-          ************************************************************/
           if (
-            mejor.ev >= 0.12 &&
-            confidence >= 75
+            mejor.ev >= 0.14 &&
+            confidence >= 78
           ) {
             stake = "3/5";
           } else if (
-            mejor.ev >= 0.08
+            mejor.ev >= 0.09
           ) {
             stake = "2/5";
           } else {
@@ -365,7 +423,7 @@ export default function Home() {
       }
     } catch {
       principal =
-        "⚠️ Error cuotas";
+        "⚠️ Error al cargar cuotas";
     }
 
     setResult(`
@@ -403,17 +461,6 @@ ${riesgo}
     setLoading(false);
   }
 
-  function clamp(
-    value: number,
-    min: number,
-    max: number
-  ) {
-    return Math.max(
-      min,
-      Math.min(max, value)
-    );
-  }
-
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
@@ -430,7 +477,7 @@ ${riesgo}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V16 Professional Engine
+            V16.1 Anti Upset Pro
           </p>
         </div>
 
