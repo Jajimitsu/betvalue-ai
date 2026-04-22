@@ -22,6 +22,7 @@ type Combo = {
   texto: string;
   cuota: number;
   ev: number;
+  score: number;
 };
 
 export default function Home() {
@@ -105,6 +106,21 @@ export default function Home() {
       .trim();
   }
 
+  function comboValida(
+    picks: Pick[]
+  ) {
+    const grupos = new Set();
+
+    for (const p of picks) {
+      if (grupos.has(p.grupo))
+        return false;
+
+      grupos.add(p.grupo);
+    }
+
+    return true;
+  }
+
   /************************************************************
    AUTOCOMPLETE
   ************************************************************/
@@ -131,27 +147,7 @@ export default function Home() {
   }, [visitText, teams]);
 
   /************************************************************
-   COMBO VÁLIDA:
-   NO REPETIR GRUPOS
-  ************************************************************/
-  function comboValida(
-    picks: Pick[]
-  ) {
-    const grupos = new Set();
-
-    for (const p of picks) {
-      if (grupos.has(p.grupo)) {
-        return false;
-      }
-
-      grupos.add(p.grupo);
-    }
-
-    return true;
-  }
-
-  /************************************************************
-   MOTOR V18.1
+   🔥 V18.2 PREMIUM ENGINE
   ************************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
@@ -180,54 +176,61 @@ export default function Home() {
     let probLocal =
       47 +
       posDiff * 1.7 +
-      homePower * 0.14 -
+      homePower * 0.13 -
       awayPower * 0.08 +
       7;
 
     probLocal = clamp(probLocal, 20, 72);
 
     let probEmpate =
-      24 - Math.abs(posDiff) * 0.5;
+      24 - Math.abs(posDiff) * 0.45;
 
     probEmpate = clamp(probEmpate, 14, 30);
 
     let probVisit =
       100 - probLocal - probEmpate;
 
-    if (probVisit < 10) probVisit = 10;
+    if (probVisit < 10)
+      probVisit = 10;
 
     const total =
-      probLocal + probEmpate + probVisit;
+      probLocal +
+      probEmpate +
+      probVisit;
 
-    probLocal = (probLocal / total) * 100;
-    probEmpate = (probEmpate / total) * 100;
-    probVisit = 100 - probLocal - probEmpate;
+    probLocal =
+      (probLocal / total) * 100;
+
+    probEmpate =
+      (probEmpate / total) * 100;
+
+    probVisit =
+      100 -
+      probLocal -
+      probEmpate;
 
     /**********************************************************
-     GOLES REALES (CORREGIDO)
+     GOLES Y CORNERS
     **********************************************************/
     const golesEsperados =
       clamp(
         (
           (localTeam.goalsFor +
             visitTeam.goalsFor) /
-            28 +
+            30 +
           1.0
         ),
         1.2,
-        3.6
+        3.4
       );
 
-    /**********************************************************
-     CORNERS
-    **********************************************************/
     const cornersEsperados =
       clamp(
-        8.1 +
+        8.0 +
           homePower * 0.03 +
           awayPower * 0.02,
-        6.2,
-        11.8
+        6.3,
+        11.4
       );
 
     /**********************************************************
@@ -236,7 +239,7 @@ export default function Home() {
     let confidence =
       58 +
       Math.abs(posDiff) * 2 +
-      Math.abs(homePower - awayPower) * 0.45;
+      Math.abs(homePower - awayPower) * 0.4;
 
     confidence = Math.round(
       clamp(confidence, 50, 92)
@@ -254,7 +257,7 @@ export default function Home() {
     **********************************************************/
     const picks: Pick[] = [];
 
-    // RESULTADO
+    // Resultado
     if (probLocal + probEmpate >= 72) {
       picks.push({
         texto: "1X",
@@ -269,7 +272,7 @@ export default function Home() {
     if (probVisit + probEmpate >= 72) {
       picks.push({
         texto: "X2",
-        cuota: 1.38,
+        cuota: 1.36,
         prob:
           (probVisit + probEmpate) /
           100,
@@ -277,17 +280,29 @@ export default function Home() {
       });
     }
 
-    // GOLES (solo uno)
-    if (golesEsperados >= 2.4) {
+    if (probVisit >= 54) {
+      picks.push({
+        texto:
+          visitTeam.name +
+          " gana",
+        cuota: 1.72,
+        prob:
+          probVisit / 100,
+        grupo: "resultado",
+      });
+    }
+
+    // Goles
+    if (golesEsperados >= 2.45) {
       picks.push({
         texto:
           "Más de 1.5 goles",
-        cuota: 1.36,
+        cuota: 1.34,
         prob: 0.74,
         grupo: "goles",
       });
     } else if (
-      golesEsperados >= 1.6
+      golesEsperados >= 1.65
     ) {
       picks.push({
         texto:
@@ -298,31 +313,31 @@ export default function Home() {
       });
     }
 
-    // CORNERS (solo uno)
+    // Corners
     if (
       cornersEsperados >= 9.2
     ) {
       picks.push({
         texto:
           "Más de 7.5 corners",
-        cuota: 1.46,
-        prob: 0.71,
+        cuota: 1.44,
+        prob: 0.72,
         grupo: "corners",
       });
     } else if (
-      cornersEsperados >= 7.4
+      cornersEsperados >= 7.5
     ) {
       picks.push({
         texto:
           "Más de 5.5 corners",
-        cuota: 1.28,
+        cuota: 1.26,
         prob: 0.84,
         grupo: "corners",
       });
     }
 
     /**********************************************************
-     GENERAR COMBOS 2 Y 3 PICKS
+     GENERADOR PREMIUM
     **********************************************************/
     const combos: Combo[] = [];
 
@@ -337,12 +352,12 @@ export default function Home() {
         j < picks.length;
         j++
       ) {
-        const grupo = [
+        const arr = [
           picks[i],
           picks[j],
         ];
 
-        if (!comboValida(grupo))
+        if (!comboValida(arr))
           continue;
 
         const cuota =
@@ -357,9 +372,9 @@ export default function Home() {
           prob * cuota - 1;
 
         if (
-          cuota >= 1.50 &&
-          cuota <= 2.40 &&
-          ev >= 0.04
+          cuota >= 1.55 &&
+          cuota <= 2.35 &&
+          ev >= 0.03
         ) {
           combos.push({
             texto:
@@ -368,6 +383,9 @@ export default function Home() {
               picks[j].texto,
             cuota,
             ev,
+            score:
+              ev * 100 +
+              cuota * 0.7,
           });
         }
       }
@@ -389,13 +407,13 @@ export default function Home() {
           k < picks.length;
           k++
         ) {
-          const grupo = [
+          const arr = [
             picks[i],
             picks[j],
             picks[k],
           ];
 
-          if (!comboValida(grupo))
+          if (!comboValida(arr))
             continue;
 
           const cuota =
@@ -412,9 +430,9 @@ export default function Home() {
             prob * cuota - 1;
 
           if (
-            cuota >= 1.70 &&
-            cuota <= 2.90 &&
-            ev >= 0.05
+            cuota >= 1.75 &&
+            cuota <= 2.80 &&
+            ev >= 0.04
           ) {
             combos.push({
               texto:
@@ -425,6 +443,9 @@ export default function Home() {
                 picks[k].texto,
               cuota,
               ev,
+              score:
+                ev * 100 +
+                cuota,
             });
           }
         }
@@ -432,7 +453,7 @@ export default function Home() {
     }
 
     /**********************************************************
-     RESULTADO
+     RESULTADO FINAL
     **********************************************************/
     if (combos.length === 0) {
       setResult(`
@@ -448,7 +469,7 @@ Mejor esperar live.
     }
 
     combos.sort(
-      (a, b) => b.ev - a.ev
+      (a, b) => b.score - a.score
     );
 
     const mejor = combos[0];
@@ -456,12 +477,12 @@ Mejor esperar live.
     let stake = "1/5";
 
     if (
-      mejor.ev >= 0.10 &&
+      mejor.ev >= 0.09 &&
       confidence >= 78
     ) {
       stake = "3/5";
     } else if (
-      mejor.ev >= 0.06
+      mejor.ev >= 0.05
     ) {
       stake = "2/5";
     }
@@ -518,7 +539,7 @@ ${cornersEsperados.toFixed(1)}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V18.1 Clean Builder
+            V18.2 Premium Filter
           </p>
         </div>
 
