@@ -25,10 +25,10 @@ type Pick = {
 
 type Combo = {
   texto: string;
-  cuotaBruta: number;
   cuotaReal: number;
   ev: number;
   score: number;
+  tipo: "TRIPLE" | "DOBLE" | "SINGLE";
 };
 
 export default function Home() {
@@ -38,9 +38,8 @@ export default function Home() {
   const [result, setResult] =
     useState("Cargando equipos...");
 
-  const [teams, setTeams] = useState<
-    TeamItem[]
-  >([]);
+  const [teams, setTeams] =
+    useState<TeamItem[]>([]);
 
   const [localText, setLocalText] =
     useState("");
@@ -110,7 +109,8 @@ export default function Home() {
       (team, index, self) =>
         index ===
         self.findIndex(
-          (t) => t.name === team.name
+          (t) =>
+            t.name === team.name
         )
     );
 
@@ -165,62 +165,20 @@ export default function Home() {
     return true;
   }
 
-  /************************************************************
-   🔥 FACTOR REAL SAME GAME
-  ************************************************************/
-  function calcularFactorCorrelacion(
+  function factorSameGame(
     picks: Pick[]
   ) {
-    const grupos = picks.map(
-      (p) => p.grupo
-    );
-
-    const tieneResultado =
-      grupos.includes(
-        "resultado"
-      );
-
-    const tieneGoles =
-      grupos.includes(
-        "goles"
-      );
-
-    const tieneCorners =
-      grupos.includes(
-        "corners"
-      );
-
-    // 2 mercados
     if (
       picks.length === 2
-    ) {
-      if (
-        tieneResultado &&
-        tieneGoles
-      )
-        return 0.79;
+    )
+      return 0.80;
 
-      if (
-        tieneResultado &&
-        tieneCorners
-      )
-        return 0.84;
-
-      if (
-        tieneGoles &&
-        tieneCorners
-      )
-        return 0.78;
-    }
-
-    // 3 mercados
     if (
       picks.length === 3
-    ) {
-      return 0.72;
-    }
+    )
+      return 0.73;
 
-    return 0.80;
+    return 1;
   }
 
   /************************************************************
@@ -257,7 +215,7 @@ export default function Home() {
   }, [visitText, teams]);
 
   /************************************************************
-   🔥 ANALIZAR
+   ANALIZAR
   ************************************************************/
   async function analizar() {
     if (
@@ -292,15 +250,15 @@ export default function Home() {
     **********************************************************/
     let probLocal =
       47 +
-      posDiff * 1.7 +
-      homePower * 0.13 -
+      posDiff * 1.6 +
+      homePower * 0.12 -
       awayPower * 0.08 +
       7;
 
     probLocal = clamp(
       probLocal,
-      20,
-      72
+      22,
+      70
     );
 
     let probEmpate =
@@ -310,7 +268,7 @@ export default function Home() {
 
     probEmpate = clamp(
       probEmpate,
-      14,
+      15,
       30
     );
 
@@ -347,27 +305,27 @@ export default function Home() {
     /**********************************************************
      GOLES Y CORNERS
     **********************************************************/
-    const golesEsperados =
+    const goles =
       clamp(
         (
           (localTeam.goalsFor +
             visitTeam.goalsFor) /
-            30 +
+            32 +
           1
         ),
-        1.2,
-        3.4
+        1.3,
+        3.2
       );
 
-    const cornersEsperados =
+    const corners =
       clamp(
         8 +
           homePower *
-            0.03 +
+            0.025 +
           awayPower *
             0.02,
-        6.3,
-        11.4
+        6.5,
+        11
       );
 
     /**********************************************************
@@ -375,10 +333,11 @@ export default function Home() {
     **********************************************************/
     const picks: Pick[] = [];
 
+    // Resultado
     if (
       probLocal +
         probEmpate >=
-      72
+      70
     ) {
       picks.push({
         texto: "1X",
@@ -395,11 +354,11 @@ export default function Home() {
     if (
       probVisit +
         probEmpate >=
-      72
+      70
     ) {
       picks.push({
         texto: "X2",
-        cuota: 1.36,
+        cuota: 1.34,
         prob:
           (probVisit +
             probEmpate) /
@@ -410,9 +369,37 @@ export default function Home() {
     }
 
     if (
-      golesEsperados >=
-      2.4
+      probLocal >= 55
     ) {
+      picks.push({
+        texto:
+          localTeam.name +
+          " gana",
+        cuota: 1.72,
+        prob:
+          probLocal / 100,
+        grupo:
+          "resultado",
+      });
+    }
+
+    if (
+      probVisit >= 55
+    ) {
+      picks.push({
+        texto:
+          visitTeam.name +
+          " gana",
+        cuota: 1.78,
+        prob:
+          probVisit / 100,
+        grupo:
+          "resultado",
+      });
+    }
+
+    // Goles
+    if (goles >= 2.35) {
       picks.push({
         texto:
           "Más de 1.5 goles",
@@ -420,22 +407,19 @@ export default function Home() {
         prob: 0.74,
         grupo: "goles",
       });
-    } else if (
-      golesEsperados >=
-      1.6
-    ) {
+    } else {
       picks.push({
         texto:
           "Más de 0.5 goles",
         cuota: 1.18,
-        prob: 0.88,
+        prob: 0.87,
         grupo: "goles",
       });
     }
 
+    // Corners
     if (
-      cornersEsperados >=
-      9.2
+      corners >= 9
     ) {
       picks.push({
         texto:
@@ -445,10 +429,7 @@ export default function Home() {
         grupo:
           "corners",
       });
-    } else if (
-      cornersEsperados >=
-      7.5
-    ) {
+    } else {
       picks.push({
         texto:
           "Más de 5.5 corners",
@@ -460,9 +441,33 @@ export default function Home() {
     }
 
     /**********************************************************
-     COMBOS REALES
+     GENERADOR
     **********************************************************/
     const combos: Combo[] = [];
+
+    // singles
+    for (const p of picks) {
+      const ev =
+        p.prob * p.cuota - 1;
+
+      if (
+        p.cuota >= 1.25 &&
+        p.cuota <= 1.95 &&
+        ev >= 0.01
+      ) {
+        combos.push({
+          texto: p.texto,
+          cuotaReal:
+            p.cuota,
+          ev,
+          score:
+            ev * 100 +
+            p.cuota,
+          tipo:
+            "SINGLE",
+        });
+      }
+    }
 
     // dobles
     for (
@@ -485,46 +490,39 @@ export default function Home() {
         )
           continue;
 
-        const cuotaBruta =
+        const cuota =
           picks[i].cuota *
-          picks[j].cuota;
-
-        const factor =
-          calcularFactorCorrelacion(
+          picks[j].cuota *
+          factorSameGame(
             arr
           );
-
-        const cuotaReal =
-          cuotaBruta *
-          factor;
 
         const prob =
           picks[i].prob *
           picks[j].prob;
 
         const ev =
-          prob *
-            cuotaReal -
-          1;
+          prob * cuota - 1;
 
         if (
-          cuotaReal >=
-            1.35 &&
-          cuotaReal <=
-            2.35 &&
-          ev >= 0.02
+          cuota >= 1.35 &&
+          cuota <= 2.25 &&
+          ev >= 0.01
         ) {
           combos.push({
             texto:
               picks[i].texto +
               " + " +
               picks[j].texto,
-            cuotaBruta,
-            cuotaReal,
+            cuotaReal:
+              cuota,
             ev,
             score:
               ev * 100 +
-              cuotaReal,
+              cuota +
+              0.4,
+            tipo:
+              "DOBLE",
           });
         }
       }
@@ -557,19 +555,13 @@ export default function Home() {
           )
             continue;
 
-          const cuotaBruta =
+          const cuota =
             picks[i].cuota *
             picks[j].cuota *
-            picks[k].cuota;
-
-          const factor =
-            calcularFactorCorrelacion(
+            picks[k].cuota *
+            factorSameGame(
               arr
             );
-
-          const cuotaReal =
-            cuotaBruta *
-            factor;
 
           const prob =
             picks[i].prob *
@@ -577,16 +569,12 @@ export default function Home() {
             picks[k].prob;
 
           const ev =
-            prob *
-              cuotaReal -
-            1;
+            prob * cuota - 1;
 
           if (
-            cuotaReal >=
-              1.55 &&
-            cuotaReal <=
-              2.65 &&
-            ev >= 0.03
+            cuota >= 1.65 &&
+            cuota <= 2.65 &&
+            ev >= 0.015
           ) {
             combos.push({
               texto:
@@ -598,12 +586,15 @@ export default function Home() {
                 " + " +
                 picks[k]
                   .texto,
-              cuotaBruta,
-              cuotaReal,
+              cuotaReal:
+                cuota,
               ev,
               score:
                 ev * 100 +
-                cuotaReal,
+                cuota +
+                0.8,
+              tipo:
+                "TRIPLE",
             });
           }
         }
@@ -619,7 +610,7 @@ export default function Home() {
       setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🚫 No hay apuesta rentable real.
+🚫 No hay apuesta premium.
 
 Mejor esperar live.
       `);
@@ -640,11 +631,11 @@ Mejor esperar live.
     let stake = "1/5";
 
     if (
-      mejor.ev >= 0.08
+      mejor.ev >= 0.07
     )
       stake = "3/5";
     else if (
-      mejor.ev >= 0.04
+      mejor.ev >= 0.03
     )
       stake = "2/5";
 
@@ -655,13 +646,11 @@ Mejor esperar live.
 
 🎯 ${mejor.texto}
 
-💰 Cuota estimada real:
-${mejor.cuotaReal.toFixed(
-  2
-)}
+📦 Tipo:
+${mejor.tipo}
 
-📉 Cuota bruta falsa:
-${mejor.cuotaBruta.toFixed(
+💰 Cuota estimada:
+${mejor.cuotaReal.toFixed(
   2
 )}
 
@@ -684,13 +673,13 @@ ${stake}
       1
     )}%
 
-⚽ Goles esperados:
-${golesEsperados.toFixed(
+⚽ Goles:
+${goles.toFixed(
       2
     )}
 
-📐 Corners esperados:
-${cornersEsperados.toFixed(
+📐 Corners:
+${corners.toFixed(
       1
     )}
     `);
@@ -714,16 +703,21 @@ ${cornersEsperados.toFixed(
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V18.3 Real Same Game Odds
+            V18.4 Balanced Engine
           </p>
         </div>
 
         <div className="relative mb-4">
           <input
-            value={localText}
-            onChange={(e) => {
+            value={
+              localText
+            }
+            onChange={(
+              e
+            ) => {
               setLocalText(
-                e.target.value
+                e.target
+                  .value
               );
               setLocalTeam(
                 null
@@ -741,7 +735,9 @@ ${cornersEsperados.toFixed(
               0 && (
               <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {localSug.map(
-                  (t) => (
+                  (
+                    t
+                  ) => (
                     <div
                       key={
                         t.id
@@ -769,10 +765,15 @@ ${cornersEsperados.toFixed(
 
         <div className="relative mb-4">
           <input
-            value={visitText}
-            onChange={(e) => {
+            value={
+              visitText
+            }
+            onChange={(
+              e
+            ) => {
               setVisitText(
-                e.target.value
+                e.target
+                  .value
               );
               setVisitTeam(
                 null
@@ -790,7 +791,9 @@ ${cornersEsperados.toFixed(
               0 && (
               <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {visitSug.map(
-                  (t) => (
+                  (
+                    t
+                  ) => (
                     <div
                       key={
                         t.id
