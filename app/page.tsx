@@ -11,6 +11,19 @@ type TeamItem = {
   goalsAgainst: number;
 };
 
+type Pick = {
+  texto: string;
+  cuota: number;
+  prob: number;
+  grupo: "resultado" | "goles" | "corners";
+};
+
+type Combo = {
+  texto: string;
+  cuota: number;
+  ev: number;
+};
+
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState("Cargando equipos...");
@@ -118,7 +131,27 @@ export default function Home() {
   }, [visitText, teams]);
 
   /************************************************************
-   🔥 V18 SMART BUILDER ENGINE
+   COMBO VÁLIDA:
+   NO REPETIR GRUPOS
+  ************************************************************/
+  function comboValida(
+    picks: Pick[]
+  ) {
+    const grupos = new Set();
+
+    for (const p of picks) {
+      if (grupos.has(p.grupo)) {
+        return false;
+      }
+
+      grupos.add(p.grupo);
+    }
+
+    return true;
+  }
+
+  /************************************************************
+   MOTOR V18.1
   ************************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
@@ -142,7 +175,7 @@ export default function Home() {
       visitTeam.goalsAgainst;
 
     /**********************************************************
-     PROBABILIDADES BASE
+     PROBABILIDADES
     **********************************************************/
     let probLocal =
       47 +
@@ -171,26 +204,30 @@ export default function Home() {
     probVisit = 100 - probLocal - probEmpate;
 
     /**********************************************************
-     GOLES ESTIMADOS
+     GOLES REALES (CORREGIDO)
     **********************************************************/
     const golesEsperados =
-      (
-        (localTeam.goalsFor +
-          visitTeam.goalsFor) /
-          18 +
-        1.1
+      clamp(
+        (
+          (localTeam.goalsFor +
+            visitTeam.goalsFor) /
+            28 +
+          1.0
+        ),
+        1.2,
+        3.6
       );
 
     /**********************************************************
-     CORNERS ESTIMADOS
+     CORNERS
     **********************************************************/
-    const cornersTotal =
+    const cornersEsperados =
       clamp(
-        8.2 +
-          homePower * 0.05 +
-          awayPower * 0.03,
-        6.5,
-        12.8
+        8.1 +
+          homePower * 0.03 +
+          awayPower * 0.02,
+        6.2,
+        11.8
       );
 
     /**********************************************************
@@ -199,7 +236,7 @@ export default function Home() {
     let confidence =
       58 +
       Math.abs(posDiff) * 2 +
-      Math.abs(homePower - awayPower) * 0.5;
+      Math.abs(homePower - awayPower) * 0.45;
 
     confidence = Math.round(
       clamp(confidence, 50, 92)
@@ -213,90 +250,83 @@ export default function Home() {
         : "Baja";
 
     /**********************************************************
-     GENERADOR DE APUESTAS
+     PICKS BASE
     **********************************************************/
-    const picks = [];
+    const picks: Pick[] = [];
 
-    // 1X
+    // RESULTADO
     if (probLocal + probEmpate >= 72) {
       picks.push({
         texto: "1X",
-        cuota: 1.24,
+        cuota: 1.28,
         prob:
           (probLocal + probEmpate) /
           100,
+        grupo: "resultado",
       });
     }
 
-    // X2
     if (probVisit + probEmpate >= 72) {
       picks.push({
         texto: "X2",
-        cuota: 1.34,
+        cuota: 1.38,
         prob:
           (probVisit + probEmpate) /
           100,
+        grupo: "resultado",
       });
     }
 
-    // Over 0.5 goles
-    if (golesEsperados >= 1.2) {
+    // GOLES (solo uno)
+    if (golesEsperados >= 2.4) {
+      picks.push({
+        texto:
+          "Más de 1.5 goles",
+        cuota: 1.36,
+        prob: 0.74,
+        grupo: "goles",
+      });
+    } else if (
+      golesEsperados >= 1.6
+    ) {
       picks.push({
         texto:
           "Más de 0.5 goles",
         cuota: 1.18,
         prob: 0.88,
+        grupo: "goles",
       });
     }
 
-    // Over 1.5 goles
-    if (golesEsperados >= 2.0) {
-      picks.push({
-        texto:
-          "Más de 1.5 goles",
-        cuota: 1.36,
-        prob: 0.72,
-      });
-    }
-
-    // Over corners
-    if (cornersTotal >= 7.5) {
-      picks.push({
-        texto:
-          "Más de 5.5 corners",
-        cuota: 1.26,
-        prob: 0.84,
-      });
-    }
-
-    if (cornersTotal >= 9.0) {
-      picks.push({
-        texto:
-          "Más de 7.5 corners",
-        cuota: 1.44,
-        prob: 0.70,
-      });
-    }
-
-    // Local más corners
+    // CORNERS (solo uno)
     if (
-      probLocal >
-      probVisit + 12
+      cornersEsperados >= 9.2
     ) {
       picks.push({
         texto:
-          localTeam.name +
-          " más corners",
-        cuota: 1.52,
-        prob: 0.67,
+          "Más de 7.5 corners",
+        cuota: 1.46,
+        prob: 0.71,
+        grupo: "corners",
+      });
+    } else if (
+      cornersEsperados >= 7.4
+    ) {
+      picks.push({
+        texto:
+          "Más de 5.5 corners",
+        cuota: 1.28,
+        prob: 0.84,
+        grupo: "corners",
       });
     }
 
     /**********************************************************
-     CONSTRUIR COMBIS
+     GENERAR COMBOS 2 Y 3 PICKS
     **********************************************************/
-    const combos = [];
+    const combos: Combo[] = [];
 
+    // Dobles
     for (
       let i = 0;
       i < picks.length;
@@ -307,6 +337,14 @@ export default function Home() {
         j < picks.length;
         j++
       ) {
+        const grupo = [
+          picks[i],
+          picks[j],
+        ];
+
+        if (!comboValida(grupo))
+          continue;
+
         const cuota =
           picks[i].cuota *
           picks[j].cuota;
@@ -319,7 +357,7 @@ export default function Home() {
           prob * cuota - 1;
 
         if (
-          cuota >= 1.55 &&
+          cuota >= 1.50 &&
           cuota <= 2.40 &&
           ev >= 0.04
         ) {
@@ -335,7 +373,7 @@ export default function Home() {
       }
     }
 
-    // triples
+    // Triples
     for (
       let i = 0;
       i < picks.length;
@@ -351,6 +389,15 @@ export default function Home() {
           k < picks.length;
           k++
         ) {
+          const grupo = [
+            picks[i],
+            picks[j],
+            picks[k],
+          ];
+
+          if (!comboValida(grupo))
+            continue;
+
           const cuota =
             picks[i].cuota *
             picks[j].cuota *
@@ -365,8 +412,8 @@ export default function Home() {
             prob * cuota - 1;
 
           if (
-            cuota >= 1.75 &&
-            cuota <= 2.80 &&
+            cuota >= 1.70 &&
+            cuota <= 2.90 &&
             ev >= 0.05
           ) {
             combos.push({
@@ -385,7 +432,7 @@ export default function Home() {
     }
 
     /**********************************************************
-     RESULTADO FINAL
+     RESULTADO
     **********************************************************/
     if (combos.length === 0) {
       setResult(`
@@ -449,7 +496,7 @@ ${confianzaTxt} (${confidence}/100)
 ${golesEsperados.toFixed(2)}
 
 📐 Corners esperados:
-${cornersTotal.toFixed(1)}
+${cornersEsperados.toFixed(1)}
     `);
 
     setLoading(false);
@@ -471,7 +518,7 @@ ${cornersTotal.toFixed(1)}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V18 Smart Builder
+            V18.1 Clean Builder
           </p>
         </div>
 
