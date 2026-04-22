@@ -1,23 +1,5 @@
 "use client";
 
-/**********************************************************************
-🔥 BETVALUE AI V17 CORNERS COMPLETO
-VERSIÓN LISTA PARA PEGAR EN app/page.tsx
-
-INCLUYE:
-✅ Motor 1X2 actual
-✅ Nueva pestaña CORNERS
-✅ Predicción Over 8.5 / 9.5 / 10.5
-✅ Equipo con más corners
-✅ Modelo últimos 5 partidos SIMULADO con stats actuales
-✅ UI premium mobile-first
-
-NOTA IMPORTANTE:
-Ahora mismo usamos estimación basada en GF/GC + posición.
-Cuando conectemos API real de corners sustituimos solo el motor.
-
-**********************************************************************/
-
 import { useEffect, useMemo, useState } from "react";
 
 type TeamItem = {
@@ -31,9 +13,8 @@ type TeamItem = {
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
-  const [teams, setTeams] = useState<TeamItem[]>([]);
   const [result, setResult] = useState("Cargando equipos...");
-  const [tab, setTab] = useState<"1x2" | "corners">("1x2");
+  const [teams, setTeams] = useState<TeamItem[]>([]);
 
   const [localText, setLocalText] = useState("");
   const [visitText, setVisitText] = useState("");
@@ -48,6 +29,9 @@ export default function Home() {
     cargarEquipos();
   }, []);
 
+  /************************************************************
+   CARGAR EQUIPOS
+  ************************************************************/
   async function cargarEquipos() {
     const ligas = [
       "PD","SD","PL","SA","BL1","FL1",
@@ -77,14 +61,24 @@ export default function Home() {
       } catch {}
     }
 
-    setTeams(
-      lista.filter(
-        (team, index, self) =>
-          index === self.findIndex((t) => t.name === team.name)
-      )
+    const unicos = lista.filter(
+      (team, index, self) =>
+        index === self.findIndex((t) => t.name === team.name)
     );
 
+    setTeams(unicos);
     setResult("");
+  }
+
+  /************************************************************
+   HELPERS
+  ************************************************************/
+  function clamp(
+    value: number,
+    min: number,
+    max: number
+  ) {
+    return Math.max(min, Math.min(max, value));
   }
 
   function normalizar(texto: string) {
@@ -98,14 +92,9 @@ export default function Home() {
       .trim();
   }
 
-  function clamp(
-    value: number,
-    min: number,
-    max: number
-  ) {
-    return Math.max(min, Math.min(max, value));
-  }
-
+  /************************************************************
+   AUTOCOMPLETE
+  ************************************************************/
   const localSug = useMemo(() => {
     const q = normalizar(localText);
     if (!q) return [];
@@ -128,188 +117,353 @@ export default function Home() {
       .slice(0, 8);
   }, [visitText, teams]);
 
-  /******************************************************************
-   MOTOR CORNERS V17
-   (estimación hasta conectar API real)
-  ******************************************************************/
-  function analizarCorners() {
+  /************************************************************
+   🔥 V18 SMART BUILDER ENGINE
+  ************************************************************/
+  async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
       return;
     }
 
     setLoading(true);
-
-    const fuerzaLocal =
-      localTeam.goalsFor -
-      localTeam.goalsAgainst;
-
-    const fuerzaVisit =
-      visitTeam.goalsFor -
-      visitTeam.goalsAgainst;
+    setResult("Analizando...");
 
     const posDiff =
       visitTeam.position -
       localTeam.position;
 
-    /**************************************************************
-     Estimación corners últimos 5 partidos
-    **************************************************************/
-    let cornersLocal =
-      4.8 +
-      fuerzaLocal * 0.08 +
-      posDiff * 0.06;
+    const homePower =
+      localTeam.goalsFor -
+      localTeam.goalsAgainst;
 
-    let cornersVisit =
-      4.1 +
-      fuerzaVisit * 0.07 -
-      posDiff * 0.04;
+    const awayPower =
+      visitTeam.goalsFor -
+      visitTeam.goalsAgainst;
 
-    cornersLocal = clamp(
-      cornersLocal,
-      3.2,
-      8.5
+    /**********************************************************
+     PROBABILIDADES BASE
+    **********************************************************/
+    let probLocal =
+      47 +
+      posDiff * 1.7 +
+      homePower * 0.14 -
+      awayPower * 0.08 +
+      7;
+
+    probLocal = clamp(probLocal, 20, 72);
+
+    let probEmpate =
+      24 - Math.abs(posDiff) * 0.5;
+
+    probEmpate = clamp(probEmpate, 14, 30);
+
+    let probVisit =
+      100 - probLocal - probEmpate;
+
+    if (probVisit < 10) probVisit = 10;
+
+    const total =
+      probLocal + probEmpate + probVisit;
+
+    probLocal = (probLocal / total) * 100;
+    probEmpate = (probEmpate / total) * 100;
+    probVisit = 100 - probLocal - probEmpate;
+
+    /**********************************************************
+     GOLES ESTIMADOS
+    **********************************************************/
+    const golesEsperados =
+      (
+        (localTeam.goalsFor +
+          visitTeam.goalsFor) /
+          18 +
+        1.1
+      );
+
+    /**********************************************************
+     CORNERS ESTIMADOS
+    **********************************************************/
+    const cornersTotal =
+      clamp(
+        8.2 +
+          homePower * 0.05 +
+          awayPower * 0.03,
+        6.5,
+        12.8
+      );
+
+    /**********************************************************
+     CONFIANZA
+    **********************************************************/
+    let confidence =
+      58 +
+      Math.abs(posDiff) * 2 +
+      Math.abs(homePower - awayPower) * 0.5;
+
+    confidence = Math.round(
+      clamp(confidence, 50, 92)
     );
 
-    cornersVisit = clamp(
-      cornersVisit,
-      2.8,
-      7.2
+    const confianzaTxt =
+      confidence >= 78
+        ? "Alta"
+        : confidence >= 64
+        ? "Media"
+        : "Baja";
+
+    /**********************************************************
+     GENERADOR DE APUESTAS
+    **********************************************************/
+    const picks = [];
+
+    // 1X
+    if (probLocal + probEmpate >= 72) {
+      picks.push({
+        texto: "1X",
+        cuota: 1.24,
+        prob:
+          (probLocal + probEmpate) /
+          100,
+      });
+    }
+
+    // X2
+    if (probVisit + probEmpate >= 72) {
+      picks.push({
+        texto: "X2",
+        cuota: 1.34,
+        prob:
+          (probVisit + probEmpate) /
+          100,
+      });
+    }
+
+    // Over 0.5 goles
+    if (golesEsperados >= 1.2) {
+      picks.push({
+        texto:
+          "Más de 0.5 goles",
+        cuota: 1.18,
+        prob: 0.88,
+      });
+    }
+
+    // Over 1.5 goles
+    if (golesEsperados >= 2.0) {
+      picks.push({
+        texto:
+          "Más de 1.5 goles",
+        cuota: 1.36,
+        prob: 0.72,
+      });
+    }
+
+    // Over corners
+    if (cornersTotal >= 7.5) {
+      picks.push({
+        texto:
+          "Más de 5.5 corners",
+        cuota: 1.26,
+        prob: 0.84,
+      });
+    }
+
+    if (cornersTotal >= 9.0) {
+      picks.push({
+        texto:
+          "Más de 7.5 corners",
+        cuota: 1.44,
+        prob: 0.70,
+      });
+    }
+
+    // Local más corners
+    if (
+      probLocal >
+      probVisit + 12
+    ) {
+      picks.push({
+        texto:
+          localTeam.name +
+          " más corners",
+        cuota: 1.52,
+        prob: 0.67,
+      });
+    }
+
+    /**********************************************************
+     CONSTRUIR COMBIS
+    **********************************************************/
+    const combos = [];
+
+    for (
+      let i = 0;
+      i < picks.length;
+      i++
+    ) {
+      for (
+        let j = i + 1;
+        j < picks.length;
+        j++
+      ) {
+        const cuota =
+          picks[i].cuota *
+          picks[j].cuota;
+
+        const prob =
+          picks[i].prob *
+          picks[j].prob;
+
+        const ev =
+          prob * cuota - 1;
+
+        if (
+          cuota >= 1.55 &&
+          cuota <= 2.40 &&
+          ev >= 0.04
+        ) {
+          combos.push({
+            texto:
+              picks[i].texto +
+              " + " +
+              picks[j].texto,
+            cuota,
+            ev,
+          });
+        }
+      }
+    }
+
+    // triples
+    for (
+      let i = 0;
+      i < picks.length;
+      i++
+    ) {
+      for (
+        let j = i + 1;
+        j < picks.length;
+        j++
+      ) {
+        for (
+          let k = j + 1;
+          k < picks.length;
+          k++
+        ) {
+          const cuota =
+            picks[i].cuota *
+            picks[j].cuota *
+            picks[k].cuota;
+
+          const prob =
+            picks[i].prob *
+            picks[j].prob *
+            picks[k].prob;
+
+          const ev =
+            prob * cuota - 1;
+
+          if (
+            cuota >= 1.75 &&
+            cuota <= 2.80 &&
+            ev >= 0.05
+          ) {
+            combos.push({
+              texto:
+                picks[i].texto +
+                " + " +
+                picks[j].texto +
+                " + " +
+                picks[k].texto,
+              cuota,
+              ev,
+            });
+          }
+        }
+      }
+    }
+
+    /**********************************************************
+     RESULTADO FINAL
+    **********************************************************/
+    if (combos.length === 0) {
+      setResult(`
+⚽ ${localTeam.name} vs ${visitTeam.name}
+
+🚫 No hay apuesta premium rentable.
+
+Mejor esperar live.
+      `);
+
+      setLoading(false);
+      return;
+    }
+
+    combos.sort(
+      (a, b) => b.ev - a.ev
     );
 
-    const totalCorners =
-      cornersLocal + cornersVisit;
+    const mejor = combos[0];
 
-    let pick = "Sin valor";
     let stake = "1/5";
-    let confianza = "Media";
 
-    if (totalCorners >= 10.8) {
-      pick = "🔥 Over 10.5 corners";
+    if (
+      mejor.ev >= 0.10 &&
+      confidence >= 78
+    ) {
       stake = "3/5";
-      confianza = "Alta";
-    } else if (totalCorners >= 9.8) {
-      pick = "🔥 Over 9.5 corners";
-      stake = "2/5";
-      confianza = "Alta";
-    } else if (totalCorners >= 8.9) {
-      pick = "📈 Over 8.5 corners";
-      stake = "1/5";
-      confianza = "Media";
     } else if (
-      cornersLocal - cornersVisit >= 1.4
+      mejor.ev >= 0.06
     ) {
-      pick =
-        "🏠 " +
-        localTeam.name +
-        " más corners";
-      stake = "2/5";
-    } else if (
-      cornersVisit - cornersLocal >= 1.4
-    ) {
-      pick =
-        "✈️ " +
-        visitTeam.name +
-        " más corners";
       stake = "2/5";
     }
 
     setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-📐 MODELO CORNERS V17
+🔥 BETVALUE AI TOP PICK
 
-🏠 ${localTeam.name}: ${cornersLocal.toFixed(1)}
-✈️ ${visitTeam.name}: ${cornersVisit.toFixed(1)}
+🎯 ${mejor.texto}
 
-📊 Total estimado:
-${totalCorners.toFixed(1)} corners
+💰 Cuota total:
+${mejor.cuota.toFixed(2)}
 
-🎯 Pick recomendado:
-${pick}
+📈 EV:
++${(
+  mejor.ev * 100
+).toFixed(1)}%
 
 🔥 Stake:
 ${stake}
 
 🧠 Confianza:
-${confianza}
-    `);
+${confianzaTxt} (${confidence}/100)
 
-    setLoading(false);
-  }
-
-  /******************************************************************
-   MOTOR 1X2 SIMPLE (mantener actual)
-  ******************************************************************/
-  function analizar1x2() {
-    if (!localTeam || !visitTeam) {
-      setResult("Selecciona ambos equipos.");
-      return;
-    }
-
-    setLoading(true);
-
-    let probLocal = 48;
-    let probEmpate = 24;
-    let probVisit = 28;
-
-    const posDiff =
-      visitTeam.position -
-      localTeam.position;
-
-    probLocal += posDiff * 1.8;
-    probVisit -= posDiff * 1.2;
-
-    const total =
-      probLocal +
-      probEmpate +
-      probVisit;
-
-    probLocal =
-      (probLocal / total) * 100;
-
-    probEmpate =
-      (probEmpate / total) * 100;
-
-    probVisit =
-      100 - probLocal - probEmpate;
-
-    setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
-
-📊 Probabilidades IA
-
+📊 Datos IA:
 🏠 ${probLocal.toFixed(1)}%
 🤝 ${probEmpate.toFixed(1)}%
 ✈️ ${probVisit.toFixed(1)}%
 
-🎯 Pick:
-${
-  probLocal > probVisit
-    ? localTeam.name + " gana"
-    : visitTeam.name + " gana"
-}
+⚽ Goles esperados:
+${golesEsperados.toFixed(2)}
+
+📐 Corners esperados:
+${cornersTotal.toFixed(1)}
     `);
 
     setLoading(false);
-  }
-
-  function analizar() {
-    if (tab === "corners") {
-      analizarCorners();
-    } else {
-      analizar1x2();
-    }
   }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-green-950 text-white flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl p-8">
 
-        <div className="text-center mb-8">
+        <div className="flex flex-col items-center mb-8">
           <img
             src="/logo.png"
-            className="w-40 mx-auto mb-4"
+            alt="BetValue AI"
+            className="w-40 mb-4"
           />
 
           <h1 className="text-4xl font-bold text-green-400">
@@ -317,36 +471,8 @@ ${
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V17 Corners Edition
+            V18 Smart Builder
           </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mb-5">
-          <button
-            onClick={() =>
-              setTab("1x2")
-            }
-            className={`py-3 rounded-xl font-bold ${
-              tab === "1x2"
-                ? "bg-green-500"
-                : "bg-white/10"
-            }`}
-          >
-            1X2
-          </button>
-
-          <button
-            onClick={() =>
-              setTab("corners")
-            }
-            className={`py-3 rounded-xl font-bold ${
-              tab === "corners"
-                ? "bg-green-500"
-                : "bg-white/10"
-            }`}
-          >
-            Corners
-          </button>
         </div>
 
         <div className="relative mb-4">
@@ -360,12 +486,12 @@ ${
               setShowLocal(true);
             }}
             placeholder="Equipo local"
-            className="w-full bg-white text-black px-5 py-4 rounded-2xl"
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
           />
 
           {showLocal &&
             localSug.length > 0 && (
-              <div className="absolute z-20 bg-white text-black w-full rounded-xl mt-1 overflow-hidden">
+              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {localSug.map((t) => (
                   <div
                     key={t.id}
@@ -396,12 +522,12 @@ ${
               setShowVisit(true);
             }}
             placeholder="Equipo visitante"
-            className="w-full bg-white text-black px-5 py-4 rounded-2xl"
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
           />
 
           {showVisit &&
             visitSug.length > 0 && (
-              <div className="absolute z-20 bg-white text-black w-full rounded-xl mt-1 overflow-hidden">
+              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {visitSug.map((t) => (
                   <div
                     key={t.id}
