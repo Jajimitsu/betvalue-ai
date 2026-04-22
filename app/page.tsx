@@ -23,12 +23,15 @@ type Pick = {
   grupo: Grupo;
 };
 
-type Combo = {
+type Apuesta = {
   texto: string;
-  cuotaReal: number;
+  cuota: number;
   ev: number;
+  tipo:
+    | "SINGLE"
+    | "DOBLE"
+    | "TRIPLE";
   score: number;
-  tipo: "TRIPLE" | "DOBLE" | "SINGLE";
 };
 
 export default function Home() {
@@ -166,18 +169,10 @@ export default function Home() {
   }
 
   function factorSameGame(
-    picks: Pick[]
+    n: number
   ) {
-    if (
-      picks.length === 2
-    )
-      return 0.80;
-
-    if (
-      picks.length === 3
-    )
-      return 0.73;
-
+    if (n === 2) return 0.80;
+    if (n === 3) return 0.73;
     return 1;
   }
 
@@ -303,7 +298,7 @@ export default function Home() {
       probEmpate;
 
     /**********************************************************
-     GOLES Y CORNERS
+     GOLES / CORNERS
     **********************************************************/
     const goles =
       clamp(
@@ -333,15 +328,15 @@ export default function Home() {
     **********************************************************/
     const picks: Pick[] = [];
 
-    // Resultado
+    // resultado
     if (
       probLocal +
         probEmpate >=
-      70
+      72
     ) {
       picks.push({
         texto: "1X",
-        cuota: 1.28,
+        cuota: 1.36,
         prob:
           (probLocal +
             probEmpate) /
@@ -354,11 +349,11 @@ export default function Home() {
     if (
       probVisit +
         probEmpate >=
-      70
+      72
     ) {
       picks.push({
         texto: "X2",
-        cuota: 1.34,
+        cuota: 1.38,
         prob:
           (probVisit +
             probEmpate) /
@@ -369,13 +364,13 @@ export default function Home() {
     }
 
     if (
-      probLocal >= 55
+      probLocal >= 57
     ) {
       picks.push({
         texto:
           localTeam.name +
           " gana",
-        cuota: 1.72,
+        cuota: 1.78,
         prob:
           probLocal / 100,
         grupo:
@@ -384,13 +379,13 @@ export default function Home() {
     }
 
     if (
-      probVisit >= 55
+      probVisit >= 57
     ) {
       picks.push({
         texto:
           visitTeam.name +
           " gana",
-        cuota: 1.78,
+        cuota: 1.84,
         prob:
           probVisit / 100,
         grupo:
@@ -398,8 +393,8 @@ export default function Home() {
       });
     }
 
-    // Goles
-    if (goles >= 2.35) {
+    // goles
+    if (goles >= 2.4) {
       picks.push({
         texto:
           "Más de 1.5 goles",
@@ -411,20 +406,20 @@ export default function Home() {
       picks.push({
         texto:
           "Más de 0.5 goles",
-        cuota: 1.18,
-        prob: 0.87,
+        cuota: 1.22,
+        prob: 0.86,
         grupo: "goles",
       });
     }
 
-    // Corners
+    // corners
     if (
       corners >= 9
     ) {
       picks.push({
         texto:
           "Más de 7.5 corners",
-        cuota: 1.44,
+        cuota: 1.48,
         prob: 0.72,
         grupo:
           "corners",
@@ -433,43 +428,42 @@ export default function Home() {
       picks.push({
         texto:
           "Más de 5.5 corners",
-        cuota: 1.26,
-        prob: 0.84,
+        cuota: 1.32,
+        prob: 0.83,
         grupo:
           "corners",
       });
     }
 
     /**********************************************************
-     GENERADOR
+     GENERADOR ELITE
     **********************************************************/
-    const combos: Combo[] = [];
+    const apuestas: Apuesta[] = [];
 
-    // singles
+    // SINGLES (mín 1.45)
     for (const p of picks) {
       const ev =
         p.prob * p.cuota - 1;
 
       if (
-        p.cuota >= 1.25 &&
-        p.cuota <= 1.95 &&
-        ev >= 0.01
+        p.cuota >= 1.45 &&
+        p.cuota <= 2.10 &&
+        ev >= 0.02
       ) {
-        combos.push({
+        apuestas.push({
           texto: p.texto,
-          cuotaReal:
-            p.cuota,
+          cuota: p.cuota,
           ev,
+          tipo:
+            "SINGLE",
           score:
             ev * 100 +
             p.cuota,
-          tipo:
-            "SINGLE",
         });
       }
     }
 
-    // dobles
+    // DOBLES (mín 1.55)
     for (
       let i = 0;
       i < picks.length;
@@ -494,7 +488,7 @@ export default function Home() {
           picks[i].cuota *
           picks[j].cuota *
           factorSameGame(
-            arr
+            2
           );
 
         const prob =
@@ -505,30 +499,29 @@ export default function Home() {
           prob * cuota - 1;
 
         if (
-          cuota >= 1.35 &&
-          cuota <= 2.25 &&
-          ev >= 0.01
+          cuota >= 1.55 &&
+          cuota <= 2.35 &&
+          ev >= 0.015
         ) {
-          combos.push({
+          apuestas.push({
             texto:
               picks[i].texto +
               " + " +
               picks[j].texto,
-            cuotaReal:
-              cuota,
+            cuota,
             ev,
+            tipo:
+              "DOBLE",
             score:
               ev * 100 +
               cuota +
-              0.4,
-            tipo:
-              "DOBLE",
+              0.5,
           });
         }
       }
     }
 
-    // triples
+    // TRIPLES (mín 1.75)
     for (
       let i = 0;
       i < picks.length;
@@ -560,7 +553,7 @@ export default function Home() {
             picks[j].cuota *
             picks[k].cuota *
             factorSameGame(
-              arr
+              3
             );
 
           const prob =
@@ -572,11 +565,11 @@ export default function Home() {
             prob * cuota - 1;
 
           if (
-            cuota >= 1.65 &&
+            cuota >= 1.75 &&
             cuota <= 2.65 &&
-            ev >= 0.015
+            ev >= 0.02
           ) {
-            combos.push({
+            apuestas.push({
               texto:
                 picks[i]
                   .texto +
@@ -586,15 +579,14 @@ export default function Home() {
                 " + " +
                 picks[k]
                   .texto,
-              cuotaReal:
-                cuota,
+              cuota,
               ev,
+              tipo:
+                "TRIPLE",
               score:
                 ev * 100 +
                 cuota +
-                0.8,
-              tipo:
-                "TRIPLE",
+                0.9,
             });
           }
         }
@@ -605,12 +597,12 @@ export default function Home() {
      RESULTADO
     **********************************************************/
     if (
-      combos.length === 0
+      apuestas.length === 0
     ) {
       setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🚫 No hay apuesta premium.
+🚫 No hay apuesta elite rentable.
 
 Mejor esperar live.
       `);
@@ -619,14 +611,14 @@ Mejor esperar live.
       return;
     }
 
-    combos.sort(
+    apuestas.sort(
       (a, b) =>
         b.score -
         a.score
     );
 
     const mejor =
-      combos[0];
+      apuestas[0];
 
     let stake = "1/5";
 
@@ -635,7 +627,7 @@ Mejor esperar live.
     )
       stake = "3/5";
     else if (
-      mejor.ev >= 0.03
+      mejor.ev >= 0.04
     )
       stake = "2/5";
 
@@ -649,8 +641,8 @@ Mejor esperar live.
 📦 Tipo:
 ${mejor.tipo}
 
-💰 Cuota estimada:
-${mejor.cuotaReal.toFixed(
+💰 Cuota:
+${mejor.cuota.toFixed(
   2
 )}
 
@@ -662,7 +654,7 @@ ${mejor.cuotaReal.toFixed(
 🔥 Stake:
 ${stake}
 
-📊 Datos IA:
+📊 IA:
 🏠 ${probLocal.toFixed(
       1
     )}%
@@ -703,7 +695,7 @@ ${corners.toFixed(
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V18.4 Balanced Engine
+            V18.5 Elite Filter
           </p>
         </div>
 
