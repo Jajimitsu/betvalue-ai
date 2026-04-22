@@ -11,56 +11,26 @@ type TeamItem = {
   goalsAgainst: number;
 };
 
-type Grupo =
-  | "resultado"
-  | "goles"
-  | "corners";
-
 type Pick = {
   texto: string;
   cuota: number;
-  prob: number;
-  grupo: Grupo;
-};
-
-type Apuesta = {
-  texto: string;
-  cuota: number;
   ev: number;
-  tipo:
-    | "SINGLE"
-    | "DOBLE"
-    | "TRIPLE";
-  score: number;
+  stake: string;
 };
 
 export default function Home() {
-  const [loading, setLoading] =
-    useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState("Cargando equipos...");
+  const [teams, setTeams] = useState<TeamItem[]>([]);
 
-  const [result, setResult] =
-    useState("Cargando equipos...");
+  const [localText, setLocalText] = useState("");
+  const [visitText, setVisitText] = useState("");
 
-  const [teams, setTeams] =
-    useState<TeamItem[]>([]);
+  const [localTeam, setLocalTeam] = useState<TeamItem | null>(null);
+  const [visitTeam, setVisitTeam] = useState<TeamItem | null>(null);
 
-  const [localText, setLocalText] =
-    useState("");
-
-  const [visitText, setVisitText] =
-    useState("");
-
-  const [localTeam, setLocalTeam] =
-    useState<TeamItem | null>(null);
-
-  const [visitTeam, setVisitTeam] =
-    useState<TeamItem | null>(null);
-
-  const [showLocal, setShowLocal] =
-    useState(false);
-
-  const [showVisit, setShowVisit] =
-    useState(false);
+  const [showLocal, setShowLocal] = useState(false);
+  const [showVisit, setShowVisit] = useState(false);
 
   useEffect(() => {
     cargarEquipos();
@@ -80,41 +50,27 @@ export default function Home() {
 
     for (const liga of ligas) {
       try {
-        const res = await fetch(
-          `/api/matches?league=${liga}`
-        );
+        const res = await fetch(`/api/matches?league=${liga}`);
+        const data = await res.json();
 
-        const data =
-          await res.json();
+        if (!data.standings?.[0]?.table) continue;
 
-        if (
-          !data.standings?.[0]?.table
-        )
-          continue;
-
-        data.standings[0].table.forEach(
-          (t: any) => {
-            lista.push({
-              id: t.team.id,
-              name: t.team.name,
-              league: liga,
-              position: t.position,
-              goalsFor: t.goalsFor,
-              goalsAgainst:
-                t.goalsAgainst,
-            });
-          }
-        );
+        data.standings[0].table.forEach((t: any) => {
+          lista.push({
+            id: t.team.id,
+            name: t.team.name,
+            league: liga,
+            position: t.position,
+            goalsFor: t.goalsFor,
+            goalsAgainst: t.goalsAgainst,
+          });
+        });
       } catch {}
     }
 
     const unicos = lista.filter(
       (team, index, self) =>
-        index ===
-        self.findIndex(
-          (t) =>
-            t.name === team.name
-        )
+        index === self.findIndex((t) => t.name === team.name)
     );
 
     setTeams(unicos);
@@ -129,82 +85,45 @@ export default function Home() {
     min: number,
     max: number
   ) {
-    return Math.max(
-      min,
-      Math.min(max, value)
-    );
+    return Math.max(min, Math.min(max, value));
   }
 
-  function normalizar(
-    texto: string
-  ) {
+  function normalizar(texto: string) {
     return texto
       .toLowerCase()
       .normalize("NFD")
-      .replace(
-        /[\u0300-\u036f]/g,
-        ""
-      )
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/fc/g, "")
+      .replace(/cf/g, "")
+      .replace(/club/g, "")
+      .replace(/real/g, "")
       .replace(/\./g, "")
       .replace(/-/g, " ")
-      .replace(/\s+/g, " ")
+      .replace(/\s+/g, "")
       .trim();
-  }
-
-  function comboValida(
-    picks: Pick[]
-  ) {
-    const usados = new Set();
-
-    for (const p of picks) {
-      if (
-        usados.has(p.grupo)
-      )
-        return false;
-
-      usados.add(p.grupo);
-    }
-
-    return true;
-  }
-
-  function factorSameGame(
-    n: number
-  ) {
-    if (n === 2) return 0.80;
-    if (n === 3) return 0.73;
-    return 1;
   }
 
   /************************************************************
    AUTOCOMPLETE
   ************************************************************/
   const localSug = useMemo(() => {
-    const q =
-      normalizar(localText);
-
+    const q = normalizar(localText);
     if (!q) return [];
 
     return teams
       .filter((t) =>
-        normalizar(
-          t.name
-        ).includes(q)
+        normalizar(t.name).includes(q)
       )
       .slice(0, 8);
   }, [localText, teams]);
 
   const visitSug = useMemo(() => {
-    const q =
-      normalizar(visitText);
-
+    const q = normalizar(visitText);
     if (!q) return [];
 
     return teams
       .filter((t) =>
-        normalizar(
-          t.name
-        ).includes(q)
+        normalizar(t.name).includes(q)
       )
       .slice(0, 8);
   }, [visitText, teams]);
@@ -213,21 +132,17 @@ export default function Home() {
    ANALIZAR
   ************************************************************/
   async function analizar() {
-    if (
-      !localTeam ||
-      !visitTeam
-    ) {
-      setResult(
-        "Selecciona ambos equipos."
-      );
+    if (!localTeam || !visitTeam) {
+      setResult("Selecciona ambos equipos.");
       return;
     }
 
     setLoading(true);
-    setResult(
-      "Analizando..."
-    );
+    setResult("Buscando cuotas reales...");
 
+    /**********************************************************
+     MODELO PROBABILIDAD
+    **********************************************************/
     const posDiff =
       visitTeam.position -
       localTeam.position;
@@ -240,42 +155,25 @@ export default function Home() {
       visitTeam.goalsFor -
       visitTeam.goalsAgainst;
 
-    /**********************************************************
-     PROBABILIDADES
-    **********************************************************/
     let probLocal =
       47 +
-      posDiff * 1.6 +
+      posDiff * 1.5 +
       homePower * 0.12 -
       awayPower * 0.08 +
       7;
 
-    probLocal = clamp(
-      probLocal,
-      22,
-      70
-    );
+    probLocal = clamp(probLocal, 20, 72);
 
     let probEmpate =
       24 -
-      Math.abs(posDiff) *
-        0.45;
+      Math.abs(posDiff) * 0.45;
 
-    probEmpate = clamp(
-      probEmpate,
-      15,
-      30
-    );
+    probEmpate = clamp(probEmpate, 14, 30);
 
     let probVisit =
       100 -
       probLocal -
       probEmpate;
-
-    if (
-      probVisit < 10
-    )
-      probVisit = 10;
 
     const total =
       probLocal +
@@ -283,14 +181,10 @@ export default function Home() {
       probVisit;
 
     probLocal =
-      (probLocal /
-        total) *
-      100;
+      (probLocal / total) * 100;
 
     probEmpate =
-      (probEmpate /
-        total) *
-      100;
+      (probEmpate / total) * 100;
 
     probVisit =
       100 -
@@ -298,353 +192,179 @@ export default function Home() {
       probEmpate;
 
     /**********************************************************
-     GOLES / CORNERS
+     CUOTAS REALES API
     **********************************************************/
-    const goles =
-      clamp(
-        (
-          (localTeam.goalsFor +
-            visitTeam.goalsFor) /
-            32 +
-          1
-        ),
-        1.3,
-        3.2
-      );
+    try {
+      const res = await fetch("/api/odds");
+      const data = await res.json();
 
-    const corners =
-      clamp(
-        8 +
-          homePower *
-            0.025 +
-          awayPower *
-            0.02,
-        6.5,
-        11
-      );
+      const partido = data.find((m: any) => {
+        const home =
+          normalizar(m.home_team);
 
-    /**********************************************************
-     PICKS BASE
-    **********************************************************/
-    const picks: Pick[] = [];
+        const away =
+          normalizar(m.away_team);
 
-    // resultado
-    if (
-      probLocal +
-        probEmpate >=
-      72
-    ) {
-      picks.push({
-        texto: "1X",
-        cuota: 1.36,
-        prob:
-          (probLocal +
-            probEmpate) /
-          100,
-        grupo:
-          "resultado",
+        const local =
+          normalizar(localTeam.name);
+
+        const visit =
+          normalizar(visitTeam.name);
+
+        return (
+          home.includes(local) &&
+          away.includes(visit)
+        );
       });
-    }
 
-    if (
-      probVisit +
-        probEmpate >=
-      72
-    ) {
-      picks.push({
-        texto: "X2",
-        cuota: 1.38,
-        prob:
-          (probVisit +
-            probEmpate) /
-          100,
-        grupo:
-          "resultado",
-      });
-    }
+      if (!partido) {
+        setResult(`
+⚽ ${localTeam.name} vs ${visitTeam.name}
 
-    if (
-      probLocal >= 57
-    ) {
-      picks.push({
-        texto:
-          localTeam.name +
-          " gana",
-        cuota: 1.78,
-        prob:
-          probLocal / 100,
-        grupo:
-          "resultado",
-      });
-    }
-
-    if (
-      probVisit >= 57
-    ) {
-      picks.push({
-        texto:
-          visitTeam.name +
-          " gana",
-        cuota: 1.84,
-        prob:
-          probVisit / 100,
-        grupo:
-          "resultado",
-      });
-    }
-
-    // goles
-    if (goles >= 2.4) {
-      picks.push({
-        texto:
-          "Más de 1.5 goles",
-        cuota: 1.34,
-        prob: 0.74,
-        grupo: "goles",
-      });
-    } else {
-      picks.push({
-        texto:
-          "Más de 0.5 goles",
-        cuota: 1.22,
-        prob: 0.86,
-        grupo: "goles",
-      });
-    }
-
-    // corners
-    if (
-      corners >= 9
-    ) {
-      picks.push({
-        texto:
-          "Más de 7.5 corners",
-        cuota: 1.48,
-        prob: 0.72,
-        grupo:
-          "corners",
-      });
-    } else {
-      picks.push({
-        texto:
-          "Más de 5.5 corners",
-        cuota: 1.32,
-        prob: 0.83,
-        grupo:
-          "corners",
-      });
-    }
-
-    /**********************************************************
-     GENERADOR ELITE
-    **********************************************************/
-    const apuestas: Apuesta[] = [];
-
-    // SINGLES (mín 1.45)
-    for (const p of picks) {
-      const ev =
-        p.prob * p.cuota - 1;
-
-      if (
-        p.cuota >= 1.45 &&
-        p.cuota <= 2.10 &&
-        ev >= 0.02
-      ) {
-        apuestas.push({
-          texto: p.texto,
-          cuota: p.cuota,
-          ev,
-          tipo:
-            "SINGLE",
-          score:
-            ev * 100 +
-            p.cuota,
-        });
+❌ No encontré cuotas reales.
+        `);
+        setLoading(false);
+        return;
       }
-    }
 
-    // DOBLES (mín 1.55)
-    for (
-      let i = 0;
-      i < picks.length;
-      i++
-    ) {
-      for (
-        let j = i + 1;
-        j < picks.length;
-        j++
-      ) {
-        const arr = [
-          picks[i],
-          picks[j],
-        ];
+      const book =
+        partido.bookmakers?.[0];
 
-        if (
-          !comboValida(arr)
-        )
-          continue;
+      const h2h =
+        book?.markets?.find(
+          (m: any) =>
+            m.key === "h2h"
+        )?.outcomes || [];
 
-        const cuota =
-          picks[i].cuota *
-          picks[j].cuota *
-          factorSameGame(
-            2
-          );
+      const cuotaLocal =
+        h2h.find(
+          (o: any) =>
+            normalizar(o.name) ===
+            normalizar(
+              partido.home_team
+            )
+        )?.price;
 
-        const prob =
-          picks[i].prob *
-          picks[j].prob;
+      const cuotaVisit =
+        h2h.find(
+          (o: any) =>
+            normalizar(o.name) ===
+            normalizar(
+              partido.away_team
+            )
+        )?.price;
 
+      const cuotaDraw =
+        h2h.find(
+          (o: any) =>
+            o.name === "Draw"
+        )?.price;
+
+      const picks: Pick[] = [];
+
+      if (cuotaLocal) {
         const ev =
-          prob * cuota - 1;
+          (probLocal / 100) *
+            cuotaLocal -
+          1;
 
         if (
-          cuota >= 1.55 &&
-          cuota <= 2.35 &&
-          ev >= 0.015
+          ev >= 0.03 &&
+          cuotaLocal >= 1.45
         ) {
-          apuestas.push({
+          picks.push({
             texto:
-              picks[i].texto +
-              " + " +
-              picks[j].texto,
-            cuota,
+              localTeam.name +
+              " gana",
+            cuota:
+              cuotaLocal,
             ev,
-            tipo:
-              "DOBLE",
-            score:
-              ev * 100 +
-              cuota +
-              0.5,
+            stake:
+              ev > 0.08
+                ? "3/5"
+                : "2/5",
           });
         }
       }
-    }
 
-    // TRIPLES (mín 1.75)
-    for (
-      let i = 0;
-      i < picks.length;
-      i++
-    ) {
-      for (
-        let j = i + 1;
-        j < picks.length;
-        j++
-      ) {
-        for (
-          let k = j + 1;
-          k < picks.length;
-          k++
+      if (cuotaVisit) {
+        const ev =
+          (probVisit / 100) *
+            cuotaVisit -
+          1;
+
+        if (
+          ev >= 0.03 &&
+          cuotaVisit >= 1.70
         ) {
-          const arr = [
-            picks[i],
-            picks[j],
-            picks[k],
-          ];
-
-          if (
-            !comboValida(arr)
-          )
-            continue;
-
-          const cuota =
-            picks[i].cuota *
-            picks[j].cuota *
-            picks[k].cuota *
-            factorSameGame(
-              3
-            );
-
-          const prob =
-            picks[i].prob *
-            picks[j].prob *
-            picks[k].prob;
-
-          const ev =
-            prob * cuota - 1;
-
-          if (
-            cuota >= 1.75 &&
-            cuota <= 2.65 &&
-            ev >= 0.02
-          ) {
-            apuestas.push({
-              texto:
-                picks[i]
-                  .texto +
-                " + " +
-                picks[j]
-                  .texto +
-                " + " +
-                picks[k]
-                  .texto,
-              cuota,
-              ev,
-              tipo:
-                "TRIPLE",
-              score:
-                ev * 100 +
-                cuota +
-                0.9,
-            });
-          }
+          picks.push({
+            texto:
+              visitTeam.name +
+              " gana",
+            cuota:
+              cuotaVisit,
+            ev,
+            stake:
+              ev > 0.08
+                ? "3/5"
+                : "2/5",
+          });
         }
       }
-    }
 
-    /**********************************************************
-     RESULTADO
-    **********************************************************/
-    if (
-      apuestas.length === 0
-    ) {
+      if (cuotaDraw) {
+        const ev =
+          (probEmpate / 100) *
+            cuotaDraw -
+          1;
+
+        if (
+          ev >= 0.05 &&
+          cuotaDraw >= 3
+        ) {
+          picks.push({
+            texto:
+              "Empate",
+            cuota:
+              cuotaDraw,
+            ev,
+            stake: "1/5",
+          });
+        }
+      }
+
+      if (
+        picks.length === 0
+      ) {
+        setResult(`
+⚽ ${localTeam.name} vs ${visitTeam.name}
+
+🚫 No hay value real prepartido.
+
+Mejor esperar live.
+        `);
+
+        setLoading(false);
+        return;
+      }
+
+      picks.sort(
+        (a, b) =>
+          b.ev - a.ev
+      );
+
+      const mejor =
+        picks[0];
+
       setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🚫 No hay apuesta elite rentable.
-
-Mejor esperar live.
-      `);
-
-      setLoading(false);
-      return;
-    }
-
-    apuestas.sort(
-      (a, b) =>
-        b.score -
-        a.score
-    );
-
-    const mejor =
-      apuestas[0];
-
-    let stake = "1/5";
-
-    if (
-      mejor.ev >= 0.07
-    )
-      stake = "3/5";
-    else if (
-      mejor.ev >= 0.04
-    )
-      stake = "2/5";
-
-    setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
-
-🔥 BETVALUE AI TOP PICK
+🔥 BETVALUE AI REAL PICK
 
 🎯 ${mejor.texto}
 
-📦 Tipo:
-${mejor.tipo}
-
-💰 Cuota:
-${mejor.cuota.toFixed(
-  2
-)}
+💰 Cuota REAL:
+${mejor.cuota}
 
 📈 EV:
 +${(
@@ -652,31 +372,27 @@ ${mejor.cuota.toFixed(
 ).toFixed(1)}%
 
 🔥 Stake:
-${stake}
+${mejor.stake}
 
-📊 IA:
+📊 Modelo:
 🏠 ${probLocal.toFixed(
-      1
-    )}%
+        1
+      )}%
 🤝 ${probEmpate.toFixed(
-      1
-    )}%
+        1
+      )}%
 ✈️ ${probVisit.toFixed(
-      1
-    )}%
+        1
+      )}%
+      `);
 
-⚽ Goles:
-${goles.toFixed(
-      2
-    )}
-
-📐 Corners:
-${corners.toFixed(
-      1
-    )}
-    `);
-
-    setLoading(false);
+      setLoading(false);
+    } catch {
+      setResult(
+        "❌ Error cargando cuotas."
+      );
+      setLoading(false);
+    }
   }
 
   return (
@@ -695,28 +411,19 @@ ${corners.toFixed(
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V18.5 Elite Filter
+            V19 Real Odds Engine
           </p>
         </div>
 
         <div className="relative mb-4">
           <input
-            value={
-              localText
-            }
-            onChange={(
-              e
-            ) => {
+            value={localText}
+            onChange={(e) => {
               setLocalText(
-                e.target
-                  .value
+                e.target.value
               );
-              setLocalTeam(
-                null
-              );
-              setShowLocal(
-                true
-              );
+              setLocalTeam(null);
+              setShowLocal(true);
             }}
             placeholder="Equipo local"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
@@ -727,13 +434,9 @@ ${corners.toFixed(
               0 && (
               <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {localSug.map(
-                  (
-                    t
-                  ) => (
+                  (t) => (
                     <div
-                      key={
-                        t.id
-                      }
+                      key={t.id}
                       onClick={() => {
                         setLocalTeam(
                           t
@@ -757,22 +460,13 @@ ${corners.toFixed(
 
         <div className="relative mb-4">
           <input
-            value={
-              visitText
-            }
-            onChange={(
-              e
-            ) => {
+            value={visitText}
+            onChange={(e) => {
               setVisitText(
-                e.target
-                  .value
+                e.target.value
               );
-              setVisitTeam(
-                null
-              );
-              setShowVisit(
-                true
-              );
+              setVisitTeam(null);
+              setShowVisit(true);
             }}
             placeholder="Equipo visitante"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
@@ -783,13 +477,9 @@ ${corners.toFixed(
               0 && (
               <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
                 {visitSug.map(
-                  (
-                    t
-                  ) => (
+                  (t) => (
                     <div
-                      key={
-                        t.id
-                      }
+                      key={t.id}
                       onClick={() => {
                         setVisitTeam(
                           t
@@ -812,12 +502,8 @@ ${corners.toFixed(
         </div>
 
         <button
-          onClick={
-            analizar
-          }
-          disabled={
-            loading
-          }
+          onClick={analizar}
+          disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
         >
           {loading
