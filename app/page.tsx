@@ -15,7 +15,7 @@ type Pick = {
   texto: string;
   cuota: number;
   prob: number;
-  tipo: "single" | "doble" | "triple";
+  tipo: "single" | "doble";
 };
 
 export default function Home() {
@@ -36,9 +36,9 @@ export default function Home() {
     cargarEquipos();
   }, []);
 
-  /************************************************************
+  /**********************************************************
    CARGAR EQUIPOS
-  ************************************************************/
+  **********************************************************/
   async function cargarEquipos() {
     const ligas = [
       "PD","SD","PL","SA","BL1","FL1",
@@ -77,9 +77,9 @@ export default function Home() {
     setResult("");
   }
 
-  /************************************************************
+  /**********************************************************
    HELPERS
-  ************************************************************/
+  **********************************************************/
   function clamp(
     value: number,
     min: number,
@@ -95,17 +95,33 @@ export default function Home() {
       .replace(/[\u0300-\u036f]/g, "")
       .replace(/fc/g, "")
       .replace(/cf/g, "")
+      .replace(/ud/g, "")
+      .replace(/cd/g, "")
       .replace(/club/g, "")
       .replace(/real/g, "")
+      .replace(/de/g, "")
       .replace(/\./g, "")
       .replace(/-/g, " ")
       .replace(/\s+/g, "")
       .trim();
   }
 
-  /************************************************************
+  function coincide(
+    apiName: string,
+    appName: string
+  ) {
+    const a = normalizar(apiName);
+    const b = normalizar(appName);
+
+    return (
+      a.includes(b) ||
+      b.includes(a)
+    );
+  }
+
+  /**********************************************************
    AUTOCOMPLETE
-  ************************************************************/
+  **********************************************************/
   const localSug = useMemo(() => {
     const q = normalizar(localText);
     if (!q) return [];
@@ -128,9 +144,9 @@ export default function Home() {
       .slice(0, 8);
   }, [visitText, teams]);
 
-  /************************************************************
+  /**********************************************************
    ANALIZAR
-  ************************************************************/
+  **********************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
@@ -138,11 +154,8 @@ export default function Home() {
     }
 
     setLoading(true);
-    setResult("Analizando cuotas reales...");
+    setResult("Buscando cuotas reales...");
 
-    /**********************************************************
-     MODELO PROPIO
-    **********************************************************/
     const posDiff =
       visitTeam.position -
       localTeam.position;
@@ -191,9 +204,6 @@ export default function Home() {
       probLocal -
       probEmpate;
 
-    /**********************************************************
-     GOLES/CORNERS BASE
-    **********************************************************/
     const goles =
       clamp(
         (
@@ -202,17 +212,8 @@ export default function Home() {
             30 +
           1
         ),
-        1.3,
+        1.4,
         3.5
-      );
-
-    const corners =
-      clamp(
-        8 +
-          homePower * 0.03 +
-          awayPower * 0.02,
-        6.5,
-        11
       );
 
     try {
@@ -220,26 +221,25 @@ export default function Home() {
       const data = await res.json();
 
       const partido = data.find((m: any) => {
-        const home =
-          normalizar(m.home_team);
-
-        const away =
-          normalizar(m.away_team);
-
-        const local =
-          normalizar(localTeam.name);
-
-        const visit =
-          normalizar(visitTeam.name);
-
         return (
-          home.includes(local) &&
-          away.includes(visit)
+          coincide(
+            m.home_team,
+            localTeam.name
+          ) &&
+          coincide(
+            m.away_team,
+            visitTeam.name
+          )
         );
       });
 
       if (!partido) {
-        setResult("No encontré cuotas reales.");
+        setResult(`
+⚽ ${localTeam.name} vs ${visitTeam.name}
+
+❌ No encontré cuotas reales.
+        `);
+
         setLoading(false);
         return;
       }
@@ -254,57 +254,44 @@ export default function Home() {
         )?.outcomes || [];
 
       const cuotaLocal =
-        h2h.find(
-          (o: any) =>
-            normalizar(o.name) ===
-            normalizar(
-              partido.home_team
-            )
+        h2h.find((o: any) =>
+          coincide(
+            o.name,
+            partido.home_team
+          )
         )?.price;
 
       const cuotaVisit =
-        h2h.find(
-          (o: any) =>
-            normalizar(o.name) ===
-            normalizar(
-              partido.away_team
-            )
+        h2h.find((o: any) =>
+          coincide(
+            o.name,
+            partido.away_team
+          )
         )?.price;
 
       const picks: Pick[] = [];
 
       /******************************************************
-       PRIORIDAD FAVORITO + COMBIS
+       LOCAL FAVORITO
       ******************************************************/
-
-      // FAVORITO LOCAL
       if (
         cuotaLocal &&
         probLocal >= 55 &&
-        cuotaLocal <= 2.20
+        cuotaLocal <= 2.30
       ) {
-        // single
-        const ev =
-          (probLocal / 100) *
-            cuotaLocal -
-          1;
+        picks.push({
+          texto:
+            localTeam.name +
+            " gana",
+          cuota:
+            cuotaLocal,
+          prob:
+            probLocal /
+            100,
+          tipo:
+            "single",
+        });
 
-        if (ev >= 0.02) {
-          picks.push({
-            texto:
-              localTeam.name +
-              " gana",
-            cuota:
-              cuotaLocal,
-            prob:
-              probLocal /
-              100,
-            tipo:
-              "single",
-          });
-        }
-
-        // doble
         if (goles >= 2.1) {
           picks.push({
             texto:
@@ -313,92 +300,11 @@ export default function Home() {
             cuota:
               cuotaLocal *
               1.28 *
-              0.83,
+              0.84,
             prob:
               (probLocal /
                 100) *
               0.74,
-            tipo:
-              "doble",
-          });
-        }
-
-        if (corners >= 7.8) {
-          picks.push({
-            texto:
-              localTeam.name +
-              " gana + Más de 5.5 corners",
-            cuota:
-              cuotaLocal *
-              1.24 *
-              0.86,
-            prob:
-              (probLocal /
-                100) *
-              0.80,
-            tipo:
-              "doble",
-          });
-        }
-      }
-
-      // FAVORITO VISITANTE
-      if (
-        cuotaVisit &&
-        probVisit >= 55 &&
-        cuotaVisit <= 2.30
-      ) {
-        const ev =
-          (probVisit / 100) *
-            cuotaVisit -
-          1;
-
-        if (ev >= 0.02) {
-          picks.push({
-            texto:
-              visitTeam.name +
-              " gana",
-            cuota:
-              cuotaVisit,
-            prob:
-              probVisit /
-              100,
-            tipo:
-              "single",
-          });
-        }
-
-        if (goles >= 2.1) {
-          picks.push({
-            texto:
-              visitTeam.name +
-              " gana + Más de 1.5 goles",
-            cuota:
-              cuotaVisit *
-              1.28 *
-              0.83,
-            prob:
-              (probVisit /
-                100) *
-              0.74,
-            tipo:
-              "doble",
-          });
-        }
-
-        if (corners >= 7.8) {
-          picks.push({
-            texto:
-              visitTeam.name +
-              " gana + Más de 5.5 corners",
-            cuota:
-              cuotaVisit *
-              1.24 *
-              0.86,
-            prob:
-              (probVisit /
-                100) *
-              0.80,
             tipo:
               "doble",
           });
@@ -406,20 +312,53 @@ export default function Home() {
       }
 
       /******************************************************
-       FILTRO VALUE REALISTA
+       VISITANTE FAVORITO
       ******************************************************/
+      if (
+        cuotaVisit &&
+        probVisit >= 55 &&
+        cuotaVisit <= 2.40
+      ) {
+        picks.push({
+          texto:
+            visitTeam.name +
+            " gana",
+          cuota:
+            cuotaVisit,
+          prob:
+            probVisit /
+            100,
+          tipo:
+            "single",
+        });
+
+        if (goles >= 2.1) {
+          picks.push({
+            texto:
+              visitTeam.name +
+              " gana + Más de 1.5 goles",
+            cuota:
+              cuotaVisit *
+              1.28 *
+              0.84,
+            prob:
+              (probVisit /
+                100) *
+              0.74,
+            tipo:
+              "doble",
+          });
+        }
+      }
+
       const buenas = picks
-        .map((p) => {
-          const ev =
+        .map((p) => ({
+          ...p,
+          ev:
             p.prob *
               p.cuota -
-            1;
-
-          return {
-            ...p,
-            ev,
-          };
-        })
+            1,
+        }))
         .filter((p) => {
           if (
             p.tipo ===
@@ -437,9 +376,9 @@ export default function Home() {
 
           return (
             p.cuota >=
-              1.55 &&
+              1.60 &&
             p.cuota <=
-              2.70 &&
+              2.75 &&
             p.ev >=
               0.015
           );
@@ -451,7 +390,7 @@ export default function Home() {
         setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🚫 No hay apuesta profesional rentable.
+🚫 No hay apuesta rentable real.
 
 Mejor esperar live.
         `);
@@ -487,7 +426,7 @@ Mejor esperar live.
 📦 Tipo:
 ${mejor.tipo.toUpperCase()}
 
-💰 Cuota REAL:
+💰 Cuota:
 ${mejor.cuota.toFixed(
         2
       )}
@@ -510,22 +449,12 @@ ${stake}
 ✈️ ${probVisit.toFixed(
         1
       )}%
-
-⚽ Goles:
-${goles.toFixed(
-        2
-      )}
-
-📐 Corners:
-${corners.toFixed(
-        1
-      )}
       `);
 
       setLoading(false);
     } catch {
       setResult(
-        "Error cargando cuotas."
+        "❌ Error cuotas."
       );
       setLoading(false);
     }
@@ -547,7 +476,7 @@ ${corners.toFixed(
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V20 Professional Selector
+            V20.1 Match Fix
           </p>
         </div>
 
