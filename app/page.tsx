@@ -11,39 +11,25 @@ type TeamItem = {
   goalsAgainst: number;
 };
 
-type Pick = {
-  texto: string;
-  cuota: number;
-  prob: number;
-  tipo: "single" | "doble";
-};
-
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState("Cargando equipos...");
   const [teams, setTeams] = useState<TeamItem[]>([]);
-
   const [localText, setLocalText] = useState("");
   const [visitText, setVisitText] = useState("");
-
   const [localTeam, setLocalTeam] = useState<TeamItem | null>(null);
   const [visitTeam, setVisitTeam] = useState<TeamItem | null>(null);
-
   const [showLocal, setShowLocal] = useState(false);
   const [showVisit, setShowVisit] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState("Cargando equipos...");
 
   useEffect(() => {
     cargarEquipos();
   }, []);
 
-  /**********************************************************
-   CARGAR EQUIPOS
-  **********************************************************/
   async function cargarEquipos() {
     const ligas = [
       "PD","SD","PL","SA","BL1","FL1",
-      "CL","EL","ECL","PPL","DED",
-      "ELC","TSL","BSA","ARG"
+      "PPL","DED","ELC","TSL","BSA","ARG"
     ];
 
     let lista: TeamItem[] = [];
@@ -70,25 +56,17 @@ export default function Home() {
 
     const unicos = lista.filter(
       (team, index, self) =>
-        index === self.findIndex((t) => t.name === team.name)
+        index === self.findIndex((x) => x.name === team.name)
     );
 
     setTeams(unicos);
     setResult("");
   }
 
-  /**********************************************************
-   HELPERS
-  **********************************************************/
-  function clamp(
-    value: number,
-    min: number,
-    max: number
-  ) {
-    return Math.max(min, Math.min(max, value));
-  }
-
-  function normalizar(texto: string) {
+  /******************************************************
+   NORMALIZADOR ULTRA PRO
+  ******************************************************/
+  function limpiar(texto: string) {
     return texto
       .toLowerCase()
       .normalize("NFD")
@@ -97,56 +75,53 @@ export default function Home() {
       .replace(/cf/g, "")
       .replace(/ud/g, "")
       .replace(/cd/g, "")
+      .replace(/rcd/g, "")
       .replace(/club/g, "")
-      .replace(/real/g, "")
-      .replace(/de/g, "")
-      .replace(/\./g, "")
+      .replace(/de futbol/g, "")
+      .replace(/football club/g, "")
+      .replace(/futbol club/g, "")
+      .replace(/sad/g, "")
       .replace(/-/g, " ")
+      .replace(/\./g, "")
       .replace(/\s+/g, "")
       .trim();
   }
 
-  function coincide(
-    apiName: string,
-    appName: string
-  ) {
-    const a = normalizar(apiName);
-    const b = normalizar(appName);
+  function mismosEquipos(a: string, b: string) {
+    const x = limpiar(a);
+    const y = limpiar(b);
 
-    return (
-      a.includes(b) ||
-      b.includes(a)
-    );
+    if (x === y) return true;
+    if (x.includes(y)) return true;
+    if (y.includes(x)) return true;
+
+    return false;
   }
 
-  /**********************************************************
+  /******************************************************
    AUTOCOMPLETE
-  **********************************************************/
+  ******************************************************/
   const localSug = useMemo(() => {
-    const q = normalizar(localText);
+    const q = limpiar(localText);
     if (!q) return [];
 
     return teams
-      .filter((t) =>
-        normalizar(t.name).includes(q)
-      )
+      .filter((t) => limpiar(t.name).includes(q))
       .slice(0, 8);
   }, [localText, teams]);
 
   const visitSug = useMemo(() => {
-    const q = normalizar(visitText);
+    const q = limpiar(visitText);
     if (!q) return [];
 
     return teams
-      .filter((t) =>
-        normalizar(t.name).includes(q)
-      )
+      .filter((t) => limpiar(t.name).includes(q))
       .slice(0, 8);
   }, [visitText, teams]);
 
-  /**********************************************************
+  /******************************************************
    ANALIZAR
-  **********************************************************/
+  ******************************************************/
   async function analizar() {
     if (!localTeam || !visitTeam) {
       setResult("Selecciona ambos equipos.");
@@ -154,308 +129,181 @@ export default function Home() {
     }
 
     setLoading(true);
-    setResult("Buscando cuotas reales...");
+    setResult("Analizando...");
 
-    const posDiff =
-      visitTeam.position -
-      localTeam.position;
+    /******************************************************
+     MODELO IA
+    ******************************************************/
+    let probLocal = 45;
+    let probEmpate = 24;
+    let probVisit = 31;
 
-    const homePower =
-      localTeam.goalsFor -
-      localTeam.goalsAgainst;
+    if (localTeam.position < visitTeam.position) {
+      probLocal += 10;
+      probVisit -= 10;
+    } else if (visitTeam.position < localTeam.position) {
+      probVisit += 10;
+      probLocal -= 10;
+    }
 
-    const awayPower =
-      visitTeam.goalsFor -
-      visitTeam.goalsAgainst;
+    probLocal += 6;
 
-    let probLocal =
-      47 +
-      posDiff * 1.5 +
-      homePower * 0.12 -
-      awayPower * 0.08 +
-      7;
+    const total = probLocal + probEmpate + probVisit;
 
-    probLocal = clamp(probLocal, 20, 72);
-
-    let probEmpate =
-      24 -
-      Math.abs(posDiff) * 0.45;
-
-    probEmpate = clamp(probEmpate, 14, 30);
-
-    let probVisit =
-      100 -
-      probLocal -
-      probEmpate;
-
-    const total =
-      probLocal +
-      probEmpate +
-      probVisit;
-
-    probLocal =
-      (probLocal / total) * 100;
-
-    probEmpate =
-      (probEmpate / total) * 100;
-
-    probVisit =
-      100 -
-      probLocal -
-      probEmpate;
-
-    const goles =
-      clamp(
-        (
-          (localTeam.goalsFor +
-            visitTeam.goalsFor) /
-            30 +
-          1
-        ),
-        1.4,
-        3.5
-      );
+    probLocal = (probLocal / total) * 100;
+    probEmpate = (probEmpate / total) * 100;
+    probVisit = 100 - probLocal - probEmpate;
 
     try {
       const res = await fetch("/api/odds");
-      const data = await res.json();
+      const odds = await res.json();
 
-      const partido = data.find((m: any) => {
+      const partido = odds.find((m: any) => {
         return (
-          coincide(
-            m.home_team,
-            localTeam.name
-          ) &&
-          coincide(
-            m.away_team,
-            visitTeam.name
-          )
+          mismosEquipos(m.home_team, localTeam.name) &&
+          mismosEquipos(m.away_team, visitTeam.name)
         );
       });
 
-      if (!partido) {
-        setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
-
-❌ No encontré cuotas reales.
-        `);
-
-        setLoading(false);
-        return;
-      }
-
-      const book =
-        partido.bookmakers?.[0];
-
-      const h2h =
-        book?.markets?.find(
-          (m: any) =>
-            m.key === "h2h"
-        )?.outcomes || [];
-
-      const cuotaLocal =
-        h2h.find((o: any) =>
-          coincide(
-            o.name,
-            partido.home_team
-          )
-        )?.price;
-
-      const cuotaVisit =
-        h2h.find((o: any) =>
-          coincide(
-            o.name,
-            partido.away_team
-          )
-        )?.price;
-
-      const picks: Pick[] = [];
-
       /******************************************************
-       LOCAL FAVORITO
+       SI HAY CUOTAS REALES
       ******************************************************/
-      if (
-        cuotaLocal &&
-        probLocal >= 55 &&
-        cuotaLocal <= 2.30
-      ) {
-        picks.push({
-          texto:
-            localTeam.name +
-            " gana",
-          cuota:
-            cuotaLocal,
-          prob:
-            probLocal /
-            100,
-          tipo:
-            "single",
-        });
+      if (partido) {
+        const book = partido.bookmakers?.[0];
 
-        if (goles >= 2.1) {
-          picks.push({
-            texto:
-              localTeam.name +
-              " gana + Más de 1.5 goles",
-            cuota:
-              cuotaLocal *
-              1.28 *
-              0.84,
-            prob:
-              (probLocal /
-                100) *
-              0.74,
-            tipo:
-              "doble",
-          });
+        const h2h =
+          book?.markets?.find(
+            (m: any) => m.key === "h2h"
+          )?.outcomes || [];
+
+        const cuotaLocal =
+          h2h.find((o: any) =>
+            mismosEquipos(o.name, partido.home_team)
+          )?.price;
+
+        const cuotaVisit =
+          h2h.find((o: any) =>
+            mismosEquipos(o.name, partido.away_team)
+          )?.price;
+
+        const cuotaDraw =
+          h2h.find((o: any) =>
+            o.name.toLowerCase().includes("draw")
+          )?.price;
+
+        let pick = "No value real";
+        let cuota = "-";
+        let stake = "0/5";
+        let fuente = "REAL";
+
+        if (
+          cuotaLocal &&
+          cuotaLocal >= 1.45 &&
+          cuotaLocal <= 2.60 &&
+          probLocal >= 55
+        ) {
+          pick = `${localTeam.name} gana`;
+          cuota = cuotaLocal.toFixed(2);
+          stake = "2/5";
         }
-      }
 
-      /******************************************************
-       VISITANTE FAVORITO
-      ******************************************************/
-      if (
-        cuotaVisit &&
-        probVisit >= 55 &&
-        cuotaVisit <= 2.40
-      ) {
-        picks.push({
-          texto:
-            visitTeam.name +
-            " gana",
-          cuota:
-            cuotaVisit,
-          prob:
-            probVisit /
-            100,
-          tipo:
-            "single",
-        });
-
-        if (goles >= 2.1) {
-          picks.push({
-            texto:
-              visitTeam.name +
-              " gana + Más de 1.5 goles",
-            cuota:
-              cuotaVisit *
-              1.28 *
-              0.84,
-            prob:
-              (probVisit /
-                100) *
-              0.74,
-            tipo:
-              "doble",
-          });
+        else if (
+          cuotaVisit &&
+          cuotaVisit >= 1.60 &&
+          cuotaVisit <= 3.80 &&
+          probVisit >= 52
+        ) {
+          pick = `${visitTeam.name} gana`;
+          cuota = cuotaVisit.toFixed(2);
+          stake = "2/5";
         }
-      }
 
-      const buenas = picks
-        .map((p) => ({
-          ...p,
-          ev:
-            p.prob *
-              p.cuota -
-            1,
-        }))
-        .filter((p) => {
-          if (
-            p.tipo ===
-            "single"
-          ) {
-            return (
-              p.cuota >=
-                1.45 &&
-              p.cuota <=
-                2.40 &&
-              p.ev >=
-                0.02
-            );
+        else if (
+          cuotaDraw &&
+          cuotaDraw >= 3 &&
+          cuotaDraw <= 4 &&
+          probEmpate >= 28
+        ) {
+          pick = `Empate`;
+          cuota = cuotaDraw.toFixed(2);
+          stake = "1/5";
+        }
+
+        else {
+          /******************************************************
+           FALLBACK IA SI NO HAY VALUE REAL
+          ******************************************************/
+          fuente = "IA";
+
+          if (probLocal > probVisit) {
+            pick = `${localTeam.name} empate no válido`;
+            cuota = "1.45";
+            stake = "1/5";
+          } else {
+            pick = `${visitTeam.name} empate no válido`;
+            cuota = "1.60";
+            stake = "1/5";
           }
+        }
 
-          return (
-            p.cuota >=
-              1.60 &&
-            p.cuota <=
-              2.75 &&
-            p.ev >=
-              0.015
-          );
-        });
-
-      if (
-        buenas.length === 0
-      ) {
         setResult(`
 ⚽ ${localTeam.name} vs ${visitTeam.name}
 
-🚫 No hay apuesta rentable real.
+🔥 BETVALUE AI PICK
 
-Mejor esperar live.
-        `);
-
-        setLoading(false);
-        return;
-      }
-
-      buenas.sort(
-        (a, b) =>
-          b.ev -
-          a.ev
-      );
-
-      const mejor =
-        buenas[0];
-
-      const stake =
-        mejor.ev >= 0.08
-          ? "3/5"
-          : mejor.ev >=
-            0.04
-          ? "2/5"
-          : "1/5";
-
-      setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
-
-🔥 BETVALUE AI TOP PICK
-
-🎯 ${mejor.texto}
-
-📦 Tipo:
-${mejor.tipo.toUpperCase()}
+🎯 ${pick}
 
 💰 Cuota:
-${mejor.cuota.toFixed(
-        2
-      )}
-
-📈 EV:
-+${(
-  mejor.ev * 100
-).toFixed(1)}%
+${cuota}
 
 🔥 Stake:
 ${stake}
 
+📡 Fuente:
+${fuente}
+
+📊 Modelo IA:
+🏠 ${probLocal.toFixed(1)}%
+🤝 ${probEmpate.toFixed(1)}%
+✈️ ${probVisit.toFixed(1)}%
+        `);
+
+        setLoading(false);
+        return;
+      }
+
+      /******************************************************
+       SI NO EXISTE PARTIDO EN API
+      ******************************************************/
+      const favorito =
+        probLocal >= probVisit
+          ? localTeam.name
+          : visitTeam.name;
+
+      setResult(`
+⚽ ${localTeam.name} vs ${visitTeam.name}
+
+📡 No encontré cuotas oficiales.
+
+🤖 Pick IA:
+
+🎯 ${favorito} empate no válido
+
+💰 Cuota estimada:
+1.55
+
+🔥 Stake:
+1/5
+
 📊 Modelo:
-🏠 ${probLocal.toFixed(
-        1
-      )}%
-🤝 ${probEmpate.toFixed(
-        1
-      )}%
-✈️ ${probVisit.toFixed(
-        1
-      )}%
+🏠 ${probLocal.toFixed(1)}%
+🤝 ${probEmpate.toFixed(1)}%
+✈️ ${probVisit.toFixed(1)}%
       `);
 
       setLoading(false);
     } catch {
-      setResult(
-        "❌ Error cuotas."
-      );
+      setResult("Error API.");
       setLoading(false);
     }
   }
@@ -467,16 +315,16 @@ ${stake}
         <div className="flex flex-col items-center mb-8">
           <img
             src="/logo.png"
-            alt="BetValue AI"
             className="w-40 mb-4"
+            alt="logo"
           />
 
-          <h1 className="text-4xl font-bold text-green-400">
+          <h1 className="text-5xl font-bold text-green-400">
             BetValue AI
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V20.1 Match Fix
+            V20.3 Full Match Fix
           </p>
         </div>
 
@@ -484,96 +332,70 @@ ${stake}
           <input
             value={localText}
             onChange={(e) => {
-              setLocalText(
-                e.target.value
-              );
+              setLocalText(e.target.value);
               setLocalTeam(null);
               setShowLocal(true);
             }}
             placeholder="Equipo local"
-            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
 
-          {showLocal &&
-            localSug.length >
-              0 && (
-              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
-                {localSug.map(
-                  (t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => {
-                        setLocalTeam(
-                          t
-                        );
-                        setLocalText(
-                          t.name
-                        );
-                        setShowLocal(
-                          false
-                        );
-                      }}
-                      className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
-                    >
-                      {t.name}
-                    </div>
-                  )
-                )}
-              </div>
-            )}
+          {showLocal && localSug.length > 0 && (
+            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
+              {localSug.map((t) => (
+                <div
+                  key={t.id}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                  onClick={() => {
+                    setLocalTeam(t);
+                    setLocalText(t.name);
+                    setShowLocal(false);
+                  }}
+                >
+                  {t.name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="relative mb-4">
           <input
             value={visitText}
             onChange={(e) => {
-              setVisitText(
-                e.target.value
-              );
+              setVisitText(e.target.value);
               setVisitTeam(null);
               setShowVisit(true);
             }}
             placeholder="Equipo visitante"
-            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-lg"
+            className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
 
-          {showVisit &&
-            visitSug.length >
-              0 && (
-              <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden shadow-xl">
-                {visitSug.map(
-                  (t) => (
-                    <div
-                      key={t.id}
-                      onClick={() => {
-                        setVisitTeam(
-                          t
-                        );
-                        setVisitText(
-                          t.name
-                        );
-                        setShowVisit(
-                          false
-                        );
-                      }}
-                      className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
-                    >
-                      {t.name}
-                    </div>
-                  )
-                )}
-              </div>
-            )}
+          {showVisit && visitSug.length > 0 && (
+            <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
+              {visitSug.map((t) => (
+                <div
+                  key={t.id}
+                  className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
+                  onClick={() => {
+                    setVisitTeam(t);
+                    setVisitText(t.name);
+                    setShowVisit(false);
+                  }}
+                >
+                  {t.name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <button
           onClick={analizar}
           disabled={loading}
-          className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-lg"
+          className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-xl"
         >
-          {loading
-            ? "Analizando..."
-            : "Analizar Partido"}
+          {loading ? "Analizando..." : "Analizar Partido"}
         </button>
 
         {result && (
