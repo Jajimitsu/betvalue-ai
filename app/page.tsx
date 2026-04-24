@@ -11,19 +11,10 @@ type Team = {
   goalsAgainst: number;
 };
 
-type Pick = {
-  market: string;
-  text: string;
-  odds: number;
-  prob: number;
-  ev: number;
-  combo: boolean;
-};
-
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
-  const [homeTxt, setHomeTxt] = useState("");
-  const [awayTxt, setAwayTxt] = useState("");
+  const [homeText, setHomeText] = useState("");
+  const [awayText, setAwayText] = useState("");
   const [home, setHome] = useState<Team | null>(null);
   const [away, setAway] = useState<Team | null>(null);
   const [showHome, setShowHome] = useState(false);
@@ -32,10 +23,10 @@ export default function Home() {
   const [result, setResult] = useState("Cargando equipos...");
 
   useEffect(() => {
-    loadTeams();
+    cargarEquipos();
   }, []);
 
-  async function loadTeams() {
+  async function cargarEquipos() {
     const leagues = [
       "PD","SD","PL","SA","BL1","FL1",
       "PPL","DED","ELC","TSL","BSA","ARG"
@@ -85,43 +76,19 @@ export default function Home() {
   }
 
   const homeSug = useMemo(() => {
-    const q = clean(homeTxt);
+    const q = clean(homeText);
     if (!q) return [];
-    return teams.filter(t => clean(t.name).includes(q)).slice(0,8);
-  }, [homeTxt, teams]);
+    return teams.filter(t => clean(t.name).includes(q)).slice(0, 8);
+  }, [homeText, teams]);
 
   const awaySug = useMemo(() => {
-    const q = clean(awayTxt);
+    const q = clean(awayText);
     if (!q) return [];
-    return teams.filter(t => clean(t.name).includes(q)).slice(0,8);
-  }, [awayTxt, teams]);
+    return teams.filter(t => clean(t.name).includes(q)).slice(0, 8);
+  }, [awayText, teams]);
 
-  function addPick(
-    list: Pick[],
-    market: string,
-    text: string,
-    odds: number,
-    prob: number,
-    combo = false
-  ) {
-    const ev = prob * odds - 1;
-
-    // balanced filters
-    if (
-      odds >= 1.25 &&
-      odds <= 3.40 &&
-      prob >= 0.50 &&
-      ev >= -0.01
-    ) {
-      list.push({
-        market,
-        text,
-        odds,
-        prob,
-        ev,
-        combo,
-      });
-    }
+  function pct(v: number) {
+    return `${v.toFixed(1)}%`;
   }
 
   async function analizar() {
@@ -131,195 +98,173 @@ export default function Home() {
     }
 
     setLoading(true);
-    setResult("Escaneando valor...");
+    setResult("Leyendo contexto del partido...");
 
     /********************************************
-     MODELO BASE
+     VARIABLES REALES
     ********************************************/
-    let pHome = 43;
-    let pDraw = 27;
-    let pAway = 30;
+    const rankDiff = away.position - home.position;
+    const homeStrength =
+      (21 - home.position) +
+      (home.goalsFor - home.goalsAgainst) / 5;
 
-    if (home.position < away.position) {
-      pHome += 9;
-      pAway -= 9;
-    } else if (away.position < home.position) {
-      pAway += 9;
-      pHome -= 9;
+    const awayStrength =
+      (21 - away.position) +
+      (away.goalsFor - away.goalsAgainst) / 5;
+
+    const strengthDiff = homeStrength - awayStrength;
+
+    const totalGoals =
+      home.goalsFor +
+      home.goalsAgainst +
+      away.goalsFor +
+      away.goalsAgainst;
+
+    const attackHome = home.goalsFor;
+    const attackAway = away.goalsFor;
+
+    const defHome = home.goalsAgainst;
+    const defAway = away.goalsAgainst;
+
+    /********************************************
+     PROBABILIDADES BASE
+    ********************************************/
+    let pHome = 45 + strengthDiff * 1.8;
+    let pDraw = 25;
+    let pAway = 30 - strengthDiff * 1.8;
+
+    pHome += 6; // localía
+
+    const sum = pHome + pDraw + pAway;
+    pHome = (pHome / sum) * 100;
+    pDraw = (pDraw / sum) * 100;
+    pAway = 100 - pHome - pDraw;
+
+    /********************************************
+     DETECTOR CONTEXTO
+    ********************************************/
+    let context = "";
+    let pick = "";
+    let market = "";
+    let odds = 1.55;
+    let confidence = 70;
+
+    // 1 FAVORITO MUY FUERTE LOCAL
+    if (strengthDiff > 8) {
+      context = "Favorito local claro";
+
+      pick = `${home.name} gana + Más de 0.5 goles`;
+      market = "Combi";
+      odds = 1.55;
+      confidence = 84;
     }
 
-    // localía
-    pHome += 6;
+    // 2 FAVORITO MUY FUERTE VISITANTE
+    else if (strengthDiff < -8) {
+      context = "Favorito visitante claro";
 
-    // goles
-    const homeDiff = home.goalsFor - home.goalsAgainst;
-    const awayDiff = away.goalsFor - away.goalsAgainst;
-
-    if (homeDiff > awayDiff) {
-      pHome += 4;
-      pAway -= 4;
-    } else if (awayDiff > homeDiff) {
-      pAway += 4;
-      pHome -= 4;
+      pick = `${away.name} gana + Más de 0.5 goles`;
+      market = "Combi";
+      odds = 1.72;
+      confidence = 82;
     }
 
-    const total = pHome + pDraw + pAway;
-    pHome /= total;
-    pDraw /= total;
-    pAway = 1 - pHome - pDraw;
+    // 3 PARTIDO MUY IGUALADO
+    else if (Math.abs(strengthDiff) < 2) {
+      context = "Partido igualado";
 
-    // goles estimados
-    const avgAttack =
-      (home.goalsFor + away.goalsFor) / 2;
-
-    const pOver05 = 0.86;
-    const pOver15 = Math.min(0.88, Math.max(0.62, 0.68 + avgAttack / 100));
-    const pOver25 = Math.min(0.76, Math.max(0.42, pOver15 - 0.18));
-    const pBTTS = Math.min(0.72, Math.max(0.40, 0.48 + avgAttack / 140));
-
-    /********************************************
-     CUOTAS BASE (ajústalas con API luego)
-    ********************************************/
-    const oddHome = 1.95;
-    const oddDraw = 3.25;
-    const oddAway = 2.50;
-
-    const odd1X = 1.28;
-    const oddX2 = 1.42;
-    const odd12 = 1.32;
-
-    const oddOver15 = 1.34;
-    const oddOver25 = 1.72;
-    const oddBTTS = 1.88;
-
-    const picks: Pick[] = [];
-
-    /********************************************
-     SINGLES
-    ********************************************/
-    addPick(picks, "1", `${home.name} gana`, oddHome, pHome);
-    addPick(picks, "X", "Empate", oddDraw, pDraw);
-    addPick(picks, "2", `${away.name} gana`, oddAway, pAway);
-
-    addPick(picks, "1X", `${home.name} o empate`, odd1X, pHome + pDraw);
-    addPick(picks, "X2", `${away.name} o empate`, oddX2, pAway + pDraw);
-    addPick(picks, "12", "No empate", odd12, pHome + pAway);
-
-    addPick(picks, "Over1.5", "Más de 1.5 goles", oddOver15, pOver15);
-    addPick(picks, "Over2.5", "Más de 2.5 goles", oddOver25, pOver25);
-    addPick(picks, "BTTS", "Ambos marcan", oddBTTS, pBTTS);
-
-    /********************************************
-     COMBIS (PRIORIDAD)
-    ********************************************/
-    addPick(
-      picks,
-      "Combi",
-      `${home.name} o empate + Más de 0.5 goles`,
-      1.48,
-      (pHome + pDraw) * pOver05 * 0.97,
-      true
-    );
-
-    addPick(
-      picks,
-      "Combi",
-      `${away.name} o empate + Más de 0.5 goles`,
-      1.58,
-      (pAway + pDraw) * pOver05 * 0.96,
-      true
-    );
-
-    addPick(
-      picks,
-      "Combi",
-      `${home.name} o empate + Más de 1.5 goles`,
-      1.72,
-      (pHome + pDraw) * pOver15 * 0.95,
-      true
-    );
-
-    addPick(
-      picks,
-      "Combi",
-      `${away.name} o empate + Más de 1.5 goles`,
-      1.84,
-      (pAway + pDraw) * pOver15 * 0.94,
-      true
-    );
-
-    addPick(
-      picks,
-      "Combi",
-      `No empate + Más de 1.5 goles`,
-      1.60,
-      (pHome + pAway) * pOver15 * 0.96,
-      true
-    );
-
-    /********************************************
-     SCORE PRIORIZANDO COMBIS
-    ********************************************/
-    picks.sort((a, b) => {
-      const scoreA =
-        a.ev * 0.32 +
-        a.prob * 0.28 +
-        (a.combo ? 0.40 : 0.00);
-
-      const scoreB =
-        b.ev * 0.32 +
-        b.prob * 0.28 +
-        (b.combo ? 0.40 : 0.00);
-
-      return scoreB - scoreA;
-    });
-
-    const best = picks[0];
-
-    if (!best) {
-      setResult(`
-⚽ ${home.name} vs ${away.name}
-
-⚠️ No detecté apuesta válida.
-      `);
-      setLoading(false);
-      return;
+      pick = `Más de 1.5 goles`;
+      market = "Over1.5";
+      odds = 1.36;
+      confidence = 72;
     }
 
-    const conf = Math.round(
-      Math.min(94, Math.max(58, best.prob * 100 + best.ev * 60))
-    );
+    // 4 DOS ATAQUES FUERTES
+    else if (attackHome > 45 && attackAway > 40) {
+      context = "Duelo ofensivo";
+
+      pick = `Ambos marcan + Más de 1.5 goles`;
+      market = "Combi";
+      odds = 1.85;
+      confidence = 79;
+    }
+
+    // 5 DOS EQUIPOS CERRADOS
+    else if (totalGoals < 95) {
+      context = "Partido cerrado";
+
+      pick = `Menos de 3.5 goles`;
+      market = "Under3.5";
+      odds = 1.44;
+      confidence = 76;
+    }
+
+    // 6 LOCAL LIGERAMENTE SUPERIOR
+    else if (strengthDiff >= 2) {
+      context = "Ventaja local";
+
+      pick = `${home.name} o empate + Más de 1.5 goles`;
+      market = "Combi";
+      odds = 1.60;
+      confidence = 78;
+    }
+
+    // 7 VISITANTE LIGERAMENTE SUPERIOR
+    else {
+      context = "Ventaja visitante";
+
+      pick = `${away.name} o empate + Más de 1.5 goles`;
+      market = "Combi";
+      odds = 1.72;
+      confidence = 76;
+    }
+
+    /********************************************
+     VALUE APROX
+    ********************************************/
+    const prob =
+      confidence / 100;
+
+    const ev =
+      prob * odds - 1;
 
     const stake =
-      conf >= 82 ? "3/5" :
-      conf >= 72 ? "2/5" :
-      "1/5";
+      confidence >= 84
+        ? "3/5"
+        : confidence >= 74
+        ? "2/5"
+        : "1/5";
 
     setResult(`
 ⚽ ${home.name} vs ${away.name}
 
-🔥 BETVALUE AI V21.2
+🔥 BETVALUE AI V22
+
+🧠 Contexto detectado:
+${context}
 
 🎯 Pick recomendado:
-${best.text}
+${pick}
 
 📊 Mercado:
-${best.market}
+${market}
 
-💰 Cuota:
-${best.odds.toFixed(2)}
+💰 Cuota estimada:
+${odds.toFixed(2)}
 
 📈 Value:
-${best.ev >= 0 ? "+" : ""}${(best.ev * 100).toFixed(1)}%
+${ev >= 0 ? "+" : ""}${(ev * 100).toFixed(1)}%
 
 🧠 Confianza:
-${conf}/100
+${confidence}/100
 
 🔥 Stake:
 ${stake}
 
-📌 Probabilidad IA:
-${(best.prob * 100).toFixed(1)}%
+📊 Modelo IA:
+🏠 ${pct(pHome)}
+🤝 ${pct(pDraw)}
+✈️ ${pct(pAway)}
     `);
 
     setLoading(false);
@@ -331,25 +276,28 @@ ${(best.prob * 100).toFixed(1)}%
 
         <div className="flex flex-col items-center mb-8">
           <img src="/logo.png" className="w-40 mb-4" />
+
           <h1 className="text-5xl font-bold text-green-400">
             BetValue AI
           </h1>
+
           <p className="text-gray-300 mt-2">
-            V21.2 Balanced Picks
+            V22 Context Engine
           </p>
         </div>
 
         <div className="relative mb-4">
           <input
-            value={homeTxt}
+            value={homeText}
             onChange={(e) => {
-              setHomeTxt(e.target.value);
+              setHomeText(e.target.value);
               setHome(null);
               setShowHome(true);
             }}
             placeholder="Equipo local"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
+
           {showHome && homeSug.length > 0 && (
             <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
               {homeSug.map((t) => (
@@ -358,7 +306,7 @@ ${(best.prob * 100).toFixed(1)}%
                   className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
                   onClick={() => {
                     setHome(t);
-                    setHomeTxt(t.name);
+                    setHomeText(t.name);
                     setShowHome(false);
                   }}
                 >
@@ -371,15 +319,16 @@ ${(best.prob * 100).toFixed(1)}%
 
         <div className="relative mb-4">
           <input
-            value={awayTxt}
+            value={awayText}
             onChange={(e) => {
-              setAwayTxt(e.target.value);
+              setAwayText(e.target.value);
               setAway(null);
               setShowAway(true);
             }}
             placeholder="Equipo visitante"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
+
           {showAway && awaySug.length > 0 && (
             <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
               {awaySug.map((t) => (
@@ -388,7 +337,7 @@ ${(best.prob * 100).toFixed(1)}%
                   className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
                   onClick={() => {
                     setAway(t);
-                    setAwayTxt(t.name);
+                    setAwayText(t.name);
                     setShowAway(false);
                   }}
                 >
@@ -404,7 +353,7 @@ ${(best.prob * 100).toFixed(1)}%
           disabled={loading}
           className="w-full bg-green-500 hover:bg-green-600 py-4 rounded-2xl font-bold text-xl"
         >
-          {loading ? "Escaneando..." : "Analizar Partido"}
+          {loading ? "Analizando..." : "Analizar Partido"}
         </button>
 
         {result && (
