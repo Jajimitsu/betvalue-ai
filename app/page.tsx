@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type TeamItem = {
+type Team = {
   id: number;
   name: string;
   league: string;
@@ -11,50 +11,50 @@ type TeamItem = {
   goalsAgainst: number;
 };
 
-type Candidate = {
+type Pick = {
   market: string;
-  pick: string;
+  text: string;
   odds: number;
   prob: number;
   ev: number;
-  safeCombo?: boolean;
+  combo: boolean;
 };
 
 export default function Home() {
-  const [teams, setTeams] = useState<TeamItem[]>([]);
-  const [localText, setLocalText] = useState("");
-  const [visitText, setVisitText] = useState("");
-  const [localTeam, setLocalTeam] = useState<TeamItem | null>(null);
-  const [visitTeam, setVisitTeam] = useState<TeamItem | null>(null);
-  const [showLocal, setShowLocal] = useState(false);
-  const [showVisit, setShowVisit] = useState(false);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [homeTxt, setHomeTxt] = useState("");
+  const [awayTxt, setAwayTxt] = useState("");
+  const [home, setHome] = useState<Team | null>(null);
+  const [away, setAway] = useState<Team | null>(null);
+  const [showHome, setShowHome] = useState(false);
+  const [showAway, setShowAway] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState("Cargando equipos...");
 
   useEffect(() => {
-    cargarEquipos();
+    loadTeams();
   }, []);
 
-  async function cargarEquipos() {
-    const ligas = [
+  async function loadTeams() {
+    const leagues = [
       "PD","SD","PL","SA","BL1","FL1",
       "PPL","DED","ELC","TSL","BSA","ARG"
     ];
 
-    let lista: TeamItem[] = [];
+    let arr: Team[] = [];
 
-    for (const liga of ligas) {
+    for (const lg of leagues) {
       try {
-        const res = await fetch(`/api/matches?league=${liga}`);
+        const res = await fetch(`/api/matches?league=${lg}`);
         const data = await res.json();
 
         if (!data.standings?.[0]?.table) continue;
 
         data.standings[0].table.forEach((t: any) => {
-          lista.push({
+          arr.push({
             id: t.team.id,
             name: t.team.name,
-            league: liga,
+            league: lg,
             position: t.position,
             goalsFor: t.goalsFor,
             goalsAgainst: t.goalsAgainst,
@@ -63,17 +63,17 @@ export default function Home() {
       } catch {}
     }
 
-    const unique = lista.filter(
-      (team, index, self) =>
-        index === self.findIndex((x) => x.name === team.name)
+    const unique = arr.filter(
+      (x, i, self) =>
+        i === self.findIndex((y) => y.name === x.name)
     );
 
     setTeams(unique);
     setResult("");
   }
 
-  function clean(txt: string) {
-    return txt
+  function clean(v: string) {
+    return v
       .toLowerCase()
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
@@ -84,20 +84,48 @@ export default function Home() {
       .trim();
   }
 
-  const localSug = useMemo(() => {
-    const q = clean(localText);
+  const homeSug = useMemo(() => {
+    const q = clean(homeTxt);
     if (!q) return [];
-    return teams.filter(t => clean(t.name).includes(q)).slice(0, 8);
-  }, [localText, teams]);
+    return teams.filter(t => clean(t.name).includes(q)).slice(0,8);
+  }, [homeTxt, teams]);
 
-  const visitSug = useMemo(() => {
-    const q = clean(visitText);
+  const awaySug = useMemo(() => {
+    const q = clean(awayTxt);
     if (!q) return [];
-    return teams.filter(t => clean(t.name).includes(q)).slice(0, 8);
-  }, [visitText, teams]);
+    return teams.filter(t => clean(t.name).includes(q)).slice(0,8);
+  }, [awayTxt, teams]);
+
+  function addPick(
+    list: Pick[],
+    market: string,
+    text: string,
+    odds: number,
+    prob: number,
+    combo = false
+  ) {
+    const ev = prob * odds - 1;
+
+    // balanced filters
+    if (
+      odds >= 1.25 &&
+      odds <= 3.40 &&
+      prob >= 0.50 &&
+      ev >= -0.01
+    ) {
+      list.push({
+        market,
+        text,
+        odds,
+        prob,
+        ev,
+        combo,
+      });
+    }
+  }
 
   async function analizar() {
-    if (!localTeam || !visitTeam) {
+    if (!home || !away) {
       setResult("Selecciona ambos equipos.");
       return;
     }
@@ -108,165 +136,172 @@ export default function Home() {
     /********************************************
      MODELO BASE
     ********************************************/
-    let pHome = 44;
-    let pDraw = 26;
+    let pHome = 43;
+    let pDraw = 27;
     let pAway = 30;
 
-    if (localTeam.position < visitTeam.position) {
-      pHome += 8;
-      pAway -= 8;
-    } else if (visitTeam.position < localTeam.position) {
-      pAway += 8;
-      pHome -= 8;
+    if (home.position < away.position) {
+      pHome += 9;
+      pAway -= 9;
+    } else if (away.position < home.position) {
+      pAway += 9;
+      pHome -= 9;
     }
 
+    // localía
     pHome += 6;
+
+    // goles
+    const homeDiff = home.goalsFor - home.goalsAgainst;
+    const awayDiff = away.goalsFor - away.goalsAgainst;
+
+    if (homeDiff > awayDiff) {
+      pHome += 4;
+      pAway -= 4;
+    } else if (awayDiff > homeDiff) {
+      pAway += 4;
+      pHome -= 4;
+    }
 
     const total = pHome + pDraw + pAway;
     pHome /= total;
     pDraw /= total;
     pAway = 1 - pHome - pDraw;
 
-    const pOver05 = 0.86;
-    const pOver15 = 0.72;
-    const pOver25 = 0.56;
-    const pBTTS = 0.52;
+    // goles estimados
+    const avgAttack =
+      (home.goalsFor + away.goalsFor) / 2;
 
+    const pOver05 = 0.86;
+    const pOver15 = Math.min(0.88, Math.max(0.62, 0.68 + avgAttack / 100));
+    const pOver25 = Math.min(0.76, Math.max(0.42, pOver15 - 0.18));
+    const pBTTS = Math.min(0.72, Math.max(0.40, 0.48 + avgAttack / 140));
+
+    /********************************************
+     CUOTAS BASE (ajústalas con API luego)
+    ********************************************/
     const oddHome = 1.95;
-    const oddAway = 2.40;
-    const oddDraw = 3.30;
+    const oddDraw = 3.25;
+    const oddAway = 2.50;
 
     const odd1X = 1.28;
     const oddX2 = 1.42;
-    const oddOver05 = 1.18;
-    const oddOver15 = 1.36;
+    const odd12 = 1.32;
+
+    const oddOver15 = 1.34;
     const oddOver25 = 1.72;
-    const oddBTTS = 1.90;
+    const oddBTTS = 1.88;
 
-    const list: Candidate[] = [];
-
-    function add(
-      market: string,
-      pick: string,
-      odds: number,
-      prob: number,
-      safeCombo = false
-    ) {
-      const ev = prob * odds - 1;
-
-      if (
-        odds >= 1.30 &&
-        odds <= 3.20 &&
-        prob >= 0.55 &&
-        ev >= 0.02
-      ) {
-        list.push({
-          market,
-          pick,
-          odds,
-          prob,
-          ev,
-          safeCombo,
-        });
-      }
-    }
+    const picks: Pick[] = [];
 
     /********************************************
-     MERCADOS SIMPLES
+     SINGLES
     ********************************************/
-    add("1", `${localTeam.name} gana`, oddHome, pHome);
-    add("X", `Empate`, oddDraw, pDraw);
-    add("2", `${visitTeam.name} gana`, oddAway, pAway);
+    addPick(picks, "1", `${home.name} gana`, oddHome, pHome);
+    addPick(picks, "X", "Empate", oddDraw, pDraw);
+    addPick(picks, "2", `${away.name} gana`, oddAway, pAway);
 
-    add("1X", `${localTeam.name} o empate`, odd1X, pHome + pDraw);
-    add("X2", `${visitTeam.name} o empate`, oddX2, pAway + pDraw);
+    addPick(picks, "1X", `${home.name} o empate`, odd1X, pHome + pDraw);
+    addPick(picks, "X2", `${away.name} o empate`, oddX2, pAway + pDraw);
+    addPick(picks, "12", "No empate", odd12, pHome + pAway);
 
-    add("Over1.5", "Más de 1.5 goles", oddOver15, pOver15);
-    add("Over2.5", "Más de 2.5 goles", oddOver25, pOver25);
-    add("BTTS", "Ambos marcan", oddBTTS, pBTTS);
+    addPick(picks, "Over1.5", "Más de 1.5 goles", oddOver15, pOver15);
+    addPick(picks, "Over2.5", "Más de 2.5 goles", oddOver25, pOver25);
+    addPick(picks, "BTTS", "Ambos marcan", oddBTTS, pBTTS);
 
     /********************************************
-     SAFE COMBIS PRIORITARIAS
+     COMBIS (PRIORIDAD)
     ********************************************/
-    add(
+    addPick(
+      picks,
       "Combi",
-      `${localTeam.name} o empate + Más de 0.5 goles`,
-      1.52,
+      `${home.name} o empate + Más de 0.5 goles`,
+      1.48,
       (pHome + pDraw) * pOver05 * 0.97,
       true
     );
 
-    add(
+    addPick(
+      picks,
       "Combi",
-      `${visitTeam.name} o empate + Más de 0.5 goles`,
-      1.64,
+      `${away.name} o empate + Más de 0.5 goles`,
+      1.58,
       (pAway + pDraw) * pOver05 * 0.96,
       true
     );
 
-    add(
+    addPick(
+      picks,
       "Combi",
-      `${localTeam.name} o empate + Más de 1.5 goles`,
+      `${home.name} o empate + Más de 1.5 goles`,
       1.72,
       (pHome + pDraw) * pOver15 * 0.95,
       true
     );
 
-    add(
+    addPick(
+      picks,
       "Combi",
-      `${visitTeam.name} o empate + Más de 1.5 goles`,
+      `${away.name} o empate + Más de 1.5 goles`,
       1.84,
       (pAway + pDraw) * pOver15 * 0.94,
       true
     );
 
+    addPick(
+      picks,
+      "Combi",
+      `No empate + Más de 1.5 goles`,
+      1.60,
+      (pHome + pAway) * pOver15 * 0.96,
+      true
+    );
+
     /********************************************
-     ORDENAR CON PRIORIDAD SAFE COMBIS
+     SCORE PRIORIZANDO COMBIS
     ********************************************/
-    list.sort((a, b) => {
+    picks.sort((a, b) => {
       const scoreA =
-        a.ev * 0.35 +
-        a.prob * 0.35 +
-        (a.safeCombo ? 0.30 : 0);
+        a.ev * 0.32 +
+        a.prob * 0.28 +
+        (a.combo ? 0.40 : 0.00);
 
       const scoreB =
-        b.ev * 0.35 +
-        b.prob * 0.35 +
-        (b.safeCombo ? 0.30 : 0);
+        b.ev * 0.32 +
+        b.prob * 0.28 +
+        (b.combo ? 0.40 : 0.00);
 
       return scoreB - scoreA;
     });
 
-    const best = list[0];
+    const best = picks[0];
 
     if (!best) {
       setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
+⚽ ${home.name} vs ${away.name}
 
-⚠️ No encontré apuesta con valor real.
-
-📌 Recomendación:
-No apostar prepartido.
+⚠️ No detecté apuesta válida.
       `);
       setLoading(false);
       return;
     }
 
-    const confidence = Math.round(best.prob * 100);
+    const conf = Math.round(
+      Math.min(94, Math.max(58, best.prob * 100 + best.ev * 60))
+    );
+
     const stake =
-      confidence >= 80
-        ? "3/5"
-        : confidence >= 70
-        ? "2/5"
-        : "1/5";
+      conf >= 82 ? "3/5" :
+      conf >= 72 ? "2/5" :
+      "1/5";
 
     setResult(`
-⚽ ${localTeam.name} vs ${visitTeam.name}
+⚽ ${home.name} vs ${away.name}
 
-🔥 BETVALUE AI V21.1
+🔥 BETVALUE AI V21.2
 
 🎯 Pick recomendado:
-${best.pick}
+${best.text}
 
 📊 Mercado:
 ${best.market}
@@ -275,13 +310,16 @@ ${best.market}
 ${best.odds.toFixed(2)}
 
 📈 Value:
-+${(best.ev * 100).toFixed(1)}%
+${best.ev >= 0 ? "+" : ""}${(best.ev * 100).toFixed(1)}%
 
 🧠 Confianza:
-${confidence}/100
+${conf}/100
 
 🔥 Stake:
 ${stake}
+
+📌 Probabilidad IA:
+${(best.prob * 100).toFixed(1)}%
     `);
 
     setLoading(false);
@@ -297,32 +335,31 @@ ${stake}
             BetValue AI
           </h1>
           <p className="text-gray-300 mt-2">
-            V21.1 Safe Combis Priority
+            V21.2 Balanced Picks
           </p>
         </div>
 
         <div className="relative mb-4">
           <input
-            value={localText}
+            value={homeTxt}
             onChange={(e) => {
-              setLocalText(e.target.value);
-              setLocalTeam(null);
-              setShowLocal(true);
+              setHomeTxt(e.target.value);
+              setHome(null);
+              setShowHome(true);
             }}
             placeholder="Equipo local"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
-
-          {showLocal && localSug.length > 0 && (
+          {showHome && homeSug.length > 0 && (
             <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
-              {localSug.map((t) => (
+              {homeSug.map((t) => (
                 <div
                   key={t.id}
                   className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
                   onClick={() => {
-                    setLocalTeam(t);
-                    setLocalText(t.name);
-                    setShowLocal(false);
+                    setHome(t);
+                    setHomeTxt(t.name);
+                    setShowHome(false);
                   }}
                 >
                   {t.name}
@@ -334,26 +371,25 @@ ${stake}
 
         <div className="relative mb-4">
           <input
-            value={visitText}
+            value={awayTxt}
             onChange={(e) => {
-              setVisitText(e.target.value);
-              setVisitTeam(null);
-              setShowVisit(true);
+              setAwayTxt(e.target.value);
+              setAway(null);
+              setShowAway(true);
             }}
             placeholder="Equipo visitante"
             className="w-full bg-white text-black px-5 py-4 rounded-2xl text-xl"
           />
-
-          {showVisit && visitSug.length > 0 && (
+          {showAway && awaySug.length > 0 && (
             <div className="absolute z-20 w-full bg-white text-black rounded-xl mt-1 overflow-hidden">
-              {visitSug.map((t) => (
+              {awaySug.map((t) => (
                 <div
                   key={t.id}
                   className="px-4 py-2 hover:bg-gray-200 cursor-pointer"
                   onClick={() => {
-                    setVisitTeam(t);
-                    setVisitText(t.name);
-                    setShowVisit(false);
+                    setAway(t);
+                    setAwayTxt(t.name);
+                    setShowAway(false);
                   }}
                 >
                   {t.name}
