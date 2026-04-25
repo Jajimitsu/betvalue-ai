@@ -23,10 +23,10 @@ export default function Home() {
   const [result, setResult] = useState("Cargando equipos...");
 
   useEffect(() => {
-    cargarEquipos();
+    loadTeams();
   }, []);
 
-  async function cargarEquipos() {
+  async function loadTeams() {
     const leagues = [
       "PD","SD","PL","SA","BL1","FL1",
       "PPL","DED","ELC","TSL","BSA","ARG"
@@ -98,152 +98,206 @@ export default function Home() {
     }
 
     setLoading(true);
-    setResult("Leyendo contexto del partido...");
+    setResult("Pensando como sharp...");
 
-    /********************************************
-     VARIABLES REALES
-    ********************************************/
-    const rankDiff = away.position - home.position;
-    const homeStrength =
-      (21 - home.position) +
-      (home.goalsFor - home.goalsAgainst) / 5;
+    /*********************************************
+     VARIABLES BASE
+    *********************************************/
+    const homePts =
+      (21 - home.position) * 3 +
+      (home.goalsFor - home.goalsAgainst);
 
-    const awayStrength =
-      (21 - away.position) +
-      (away.goalsFor - away.goalsAgainst) / 5;
+    const awayPts =
+      (21 - away.position) * 3 +
+      (away.goalsFor - away.goalsAgainst);
 
-    const strengthDiff = homeStrength - awayStrength;
+    const diff = homePts - awayPts;
 
-    const totalGoals =
-      home.goalsFor +
-      home.goalsAgainst +
-      away.goalsFor +
-      away.goalsAgainst;
+    const avgGoalsHome =
+      home.goalsFor + home.goalsAgainst;
 
-    const attackHome = home.goalsFor;
-    const attackAway = away.goalsFor;
+    const avgGoalsAway =
+      away.goalsFor + away.goalsAgainst;
 
-    const defHome = home.goalsAgainst;
-    const defAway = away.goalsAgainst;
+    const totalGoals = avgGoalsHome + avgGoalsAway;
 
-    /********************************************
-     PROBABILIDADES BASE
-    ********************************************/
-    let pHome = 45 + strengthDiff * 1.8;
-    let pDraw = 25;
-    let pAway = 30 - strengthDiff * 1.8;
+    /*********************************************
+     PROBABILIDADES
+    *********************************************/
+    let pHome = 45 + diff * 0.6;
+    let pDraw = 26;
+    let pAway = 29 - diff * 0.6;
 
     pHome += 6; // localía
 
     const sum = pHome + pDraw + pAway;
+
     pHome = (pHome / sum) * 100;
     pDraw = (pDraw / sum) * 100;
     pAway = 100 - pHome - pDraw;
 
-    /********************************************
-     DETECTOR CONTEXTO
-    ********************************************/
+    /*********************************************
+     DETECTOR DE CONTEXTO
+    *********************************************/
     let context = "";
     let pick = "";
     let market = "";
-    let odds = 1.55;
+    let odds = 1.50;
     let confidence = 70;
+    let reason = "";
 
-    // 1 FAVORITO MUY FUERTE LOCAL
-    if (strengthDiff > 8) {
-      context = "Favorito local claro";
+    /*********************************************
+     1 FAVORITO LOCAL MUY CLARO
+    *********************************************/
+    if (diff > 18) {
+      context = "Favorito local dominante";
 
-      pick = `${home.name} gana + Más de 0.5 goles`;
-      market = "Combi";
-      odds = 1.55;
-      confidence = 84;
+      pick = `${home.name} gana`;
+      market = "1";
+      odds = 1.62;
+      confidence = 83;
+
+      reason =
+        "Superioridad clara en tabla y rendimiento.";
     }
 
-    // 2 FAVORITO MUY FUERTE VISITANTE
-    else if (strengthDiff < -8) {
-      context = "Favorito visitante claro";
+    /*********************************************
+     2 FAVORITO VISITANTE MUY CLARO
+    *********************************************/
+    else if (diff < -18) {
+      context = "Favorito visitante dominante";
 
-      pick = `${away.name} gana + Más de 0.5 goles`;
-      market = "Combi";
+      pick = `${away.name} empate no válido`;
+      market = "DNB";
       odds = 1.72;
-      confidence = 82;
+      confidence = 80;
+
+      reason =
+        "Visitante superior, protección al empate.";
     }
 
-    // 3 PARTIDO MUY IGUALADO
-    else if (Math.abs(strengthDiff) < 2) {
-      context = "Partido igualado";
-
-      pick = `Más de 1.5 goles`;
-      market = "Over1.5";
-      odds = 1.36;
-      confidence = 72;
-    }
-
-    // 4 DOS ATAQUES FUERTES
-    else if (attackHome > 45 && attackAway > 40) {
-      context = "Duelo ofensivo";
-
-      pick = `Ambos marcan + Más de 1.5 goles`;
-      market = "Combi";
-      odds = 1.85;
-      confidence = 79;
-    }
-
-    // 5 DOS EQUIPOS CERRADOS
-    else if (totalGoals < 95) {
-      context = "Partido cerrado";
+    /*********************************************
+     3 PARTIDO CERRADO
+    *********************************************/
+    else if (totalGoals < 92) {
+      context = "Partido de pocos goles";
 
       pick = `Menos de 3.5 goles`;
       market = "Under3.5";
       odds = 1.44;
-      confidence = 76;
+      confidence = 79;
+
+      reason =
+        "Ambos equipos promedian marcadores bajos.";
     }
 
-    // 6 LOCAL LIGERAMENTE SUPERIOR
-    else if (strengthDiff >= 2) {
-      context = "Ventaja local";
+    /*********************************************
+     4 DOS ATAQUES BUENOS
+    *********************************************/
+    else if (
+      home.goalsFor > 42 &&
+      away.goalsFor > 38
+    ) {
+      context = "Duelo ofensivo";
+
+      pick = `Ambos marcan`;
+      market = "BTTS";
+      odds = 1.78;
+      confidence = 76;
+
+      reason =
+        "Dos ataques fuertes y producción ofensiva alta.";
+    }
+
+    /*********************************************
+     5 IGUALADO TOTAL
+    *********************************************/
+    else if (Math.abs(diff) < 6) {
+      context = "Partido equilibrado";
+
+      pick = `Más de 1.5 goles`;
+      market = "Over1.5";
+      odds = 1.34;
+      confidence = 71;
+
+      reason =
+        "Mercado más estable en duelo parejo.";
+    }
+
+    /*********************************************
+     6 LIGERA VENTAJA LOCAL
+    *********************************************/
+    else if (diff >= 6) {
+      context = "Ventaja local moderada";
 
       pick = `${home.name} o empate + Más de 1.5 goles`;
       market = "Combi";
-      odds = 1.60;
-      confidence = 78;
+      odds = 1.63;
+      confidence = 77;
+
+      reason =
+        "Local superior sin necesidad de ir al 1 puro.";
     }
 
-    // 7 VISITANTE LIGERAMENTE SUPERIOR
+    /*********************************************
+     7 LIGERA VENTAJA VISITANTE
+    *********************************************/
     else {
-      context = "Ventaja visitante";
+      context = "Ventaja visitante moderada";
 
-      pick = `${away.name} o empate + Más de 1.5 goles`;
-      market = "Combi";
-      odds = 1.72;
-      confidence = 76;
+      pick = `${away.name} o empate`;
+      market = "X2";
+      odds = 1.55;
+      confidence = 74;
+
+      reason =
+        "Visitante mejor perfil global.";
     }
 
-    /********************************************
-     VALUE APROX
-    ********************************************/
-    const prob =
-      confidence / 100;
+    /*********************************************
+     FILTRO SHARP: NO BET
+    *********************************************/
+    if (confidence < 69) {
+      setResult(`
+⚽ ${home.name} vs ${away.name}
 
-    const ev =
-      prob * odds - 1;
+🔥 BETVALUE AI V23
+
+📌 Contexto:
+Mercado sin ventaja clara.
+
+🚫 Recomendación:
+NO BET
+
+📊 Modelo IA:
+🏠 ${pct(pHome)}
+🤝 ${pct(pDraw)}
+✈️ ${pct(pAway)}
+      `);
+
+      setLoading(false);
+      return;
+    }
+
+    const prob = confidence / 100;
+    const ev = prob * odds - 1;
 
     const stake =
-      confidence >= 84
+      confidence >= 82
         ? "3/5"
-        : confidence >= 74
+        : confidence >= 75
         ? "2/5"
         : "1/5";
 
     setResult(`
 ⚽ ${home.name} vs ${away.name}
 
-🔥 BETVALUE AI V22
+🔥 BETVALUE AI V23
 
 🧠 Contexto detectado:
 ${context}
 
-🎯 Pick recomendado:
+🎯 Pick final:
 ${pick}
 
 📊 Mercado:
@@ -260,6 +314,9 @@ ${confidence}/100
 
 🔥 Stake:
 ${stake}
+
+📌 Motivo principal:
+${reason}
 
 📊 Modelo IA:
 🏠 ${pct(pHome)}
@@ -282,7 +339,7 @@ ${stake}
           </h1>
 
           <p className="text-gray-300 mt-2">
-            V22 Context Engine
+            V23 Sharp Core
           </p>
         </div>
 
